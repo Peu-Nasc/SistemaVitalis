@@ -210,10 +210,11 @@
                 </section>
 
                 <section id="agenda" class="view-section">
-                    <div class="section-header">
+                    <div class="section-header agenda-header-stack">
                         <h2>Agenda Multiprofissional</h2>
-                        <div class="agenda-controls">
-                            <!-- Alternador de período: Dia / Semana / Mês -->
+
+                        <!-- LINHA 1: navegação de período (o que muda com mais frequência) -->
+                        <div class="agenda-controls agenda-controls-nav">
                             <div class="periodo-toggle" id="agenda-periodo-toggle">
                                 <button type="button" data-periodo="dia" class="active">Dia</button>
                                 <button type="button" data-periodo="semana">Semana</button>
@@ -227,9 +228,11 @@
                             </div>
 
                             <span class="agenda-periodo-label" id="agenda-periodo-label"></span>
-
                             <input type="date" id="data-agenda" class="input-premium" style="max-width:170px;">
+                        </div>
 
+                        <!-- LINHA 2: filtros de visão + ações -->
+                        <div class="agenda-controls agenda-controls-filtros">
                             <!-- Alternância de Visão (só se aplica à visão de Dia) -->
                             <select id="agenda-visao" class="input-premium select-compact">
                                 <option value="profissionais">Visão: Por Profissionais</option>
@@ -239,6 +242,9 @@
                             <select id="filtro-profissional" class="input-premium">
                                 <option value="todos">Todos os Profissionais</option>
                             </select>
+
+                            <span class="agenda-controls-spacer"></span>
+
                             <button class="btn-secondary" id="btn-novo-bloqueio" type="button" data-open-modal="modal-bloqueio"><i class="fa-solid fa-lock"></i> Bloquear Horário</button>
                             <button class="btn-primary" id="btn-novo-agendamento" type="button" data-open-modal="modal-agendamento">+ Agendar</button>
                         </div>
@@ -1392,6 +1398,43 @@
             </div>
         </div>
     </div>
+
+    <!-- ================== MODAL DE DETALHE DO AGENDAMENTO ==================
+         Aberto ao clicar num card ocupado da Agenda. Concentra tudo que antes
+         ficava espremido dentro do próprio card da grade (tipo, profissional,
+         sala, valor, selo de pagamento, troca de status e confirmação de
+         pagamento) - o card na grade agora só mostra paciente + horário. -->
+    <div id="modal-detalhe-agendamento" class="modal-overlay">
+        <div class="modal-content modal-sm">
+            <header class="modal-header">
+                <h2 id="detalhe-agendamento-titulo">Consulta</h2>
+                <button class="btn-close-modal" id="btn-close-detalhe-agendamento" type="button"><i class="fa-solid fa-xmark"></i></button>
+            </header>
+            <div class="modal-body">
+                <div class="detalhe-info-list" id="detalhe-agendamento-info"></div>
+
+                <div class="form-group full-width mt-15">
+                    <label>Status da Consulta</label>
+                    <select class="select-status-agenda input-premium" id="detalhe-agendamento-status">
+                        <option value="agendado">🗓️ Agendado</option>
+                        <option value="confirmado">✅ Confirmado</option>
+                        <option value="aguardando_atendimento">⏳ Aguardando</option>
+                        <option value="concluido">🏁 Concluído</option>
+                        <option value="cancelado">❌ Cancelado</option>
+                    </select>
+                </div>
+
+                <button type="button" class="btn-primary btn-full mt-15" id="btn-confirmar-pagamento-detalhe" style="display:none;">
+                    <i class="fa-solid fa-hand-holding-dollar"></i> Confirmar Pagamento
+                </button>
+
+                <button type="button" class="btn-secondary btn-full mt-10" id="btn-cancelar-consulta-detalhe">
+                    <i class="fa-solid fa-ban"></i> Cancelar Consulta
+                </button>
+            </div>
+        </div>
+    </div>
+
 
     <!-- ================== MODAL DE CONFIRMAÇÃO (substitui o confirm() nativo do navegador) ================== -->
     <div id="modal-confirmacao" class="modal-overlay">

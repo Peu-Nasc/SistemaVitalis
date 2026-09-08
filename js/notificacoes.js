@@ -1,7 +1,7 @@
 import { clinicaState } from './state.js';
 import { showToast, escapeHTML, confirmarAcao } from './Ferramentas.js';
 import { db } from './firebase.js';
-import { collection, addDoc, doc, updateDoc, query, where, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js';
+import { collection, addDoc, doc, updateDoc, deleteDoc, query, where, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js';
 import { registrarAuditoria } from './auditoria.js';
 import { abrirProntuario } from './pacientes.js';
 
@@ -85,6 +85,17 @@ function navegarParaContexto(n) {
 }
 
 // ========================================================
+// DISPENSAR ALERTA LOCAL
+// Os alertas locais (estoque, consultas de hoje/amanhã) são
+// recalculados a cada atualização, não vêm do banco - "apagar"
+// aqui significa esconder aquele aviso específico enquanto a
+// sessão estiver aberta. Se a mesma condição ainda existir na
+// próxima vez que a página carregar do zero, o aviso volta -
+// isso é intencional (ex: item continua vencido).
+// ========================================================
+const alertasLocaisDispensados = new Set();
+
+// ========================================================
 // GERADOR DE ALERTAS LOCAIS (Economiza o Firebase)
 // ========================================================
 function gerarAlertasLocais() {
@@ -93,13 +104,13 @@ function gerarAlertasLocais() {
     
     clinicaState.estoque.forEach(item => {
         if (item.qtd <= item.min) {
-            alertas.push({ tipo: 'estoque', titulo: 'Estoque Baixo', mensagem: `${item.nome} atingiu o mínimo!`, criadoPor: 'Sistema', status: 'pendente', local: true });
+            alertas.push({ id: `local-estoque-baixo-${item.id}`, tipo: 'estoque', titulo: 'Estoque Baixo', mensagem: `${item.nome} atingiu o mínimo!`, criadoPor: 'Sistema', status: 'pendente', local: true });
         }
         const diasVenc = Math.floor((new Date(item.validade) - hojeData) / (1000 * 60 * 60 * 24));
         if (diasVenc <= 30 && diasVenc >= 0) {
-            alertas.push({ tipo: 'estoque', titulo: 'Vencimento Próximo', mensagem: `Lote ${item.lote} de ${item.nome} vence em ${diasVenc} dias!`, criadoPor: 'Sistema', status: 'pendente', local: true });
+            alertas.push({ id: `local-estoque-venc-${item.id}`, tipo: 'estoque', titulo: 'Vencimento Próximo', mensagem: `Lote ${item.lote} de ${item.nome} vence em ${diasVenc} dias!`, criadoPor: 'Sistema', status: 'pendente', local: true });
         } else if (diasVenc < 0) {
-            alertas.push({ tipo: 'estoque', titulo: 'Item Vencido', mensagem: `Lote ${item.lote} de ${item.nome} está vencido!`, criadoPor: 'Sistema', status: 'pendente', local: true });
+            alertas.push({ id: `local-estoque-vencido-${item.id}`, tipo: 'estoque', titulo: 'Item Vencido', mensagem: `Lote ${item.lote} de ${item.nome} está vencido!`, criadoPor: 'Sistema', status: 'pendente', local: true });
         }
     });
 
@@ -112,10 +123,10 @@ function gerarAlertasLocais() {
     const consultasHoje = clinicaState.agenda.agendamentos.filter(a => a.data === hojeIso && a.status !== 'cancelado');
     const consultasAmanha = clinicaState.agenda.agendamentos.filter(a => a.data === amanhaIso && a.status !== 'cancelado');
 
-    if (consultasHoje.length > 0) alertas.push({ tipo: 'geral', titulo: 'Consultas Hoje', mensagem: `Você tem ${consultasHoje.length} consulta(s) para hoje.`, criadoPor: 'Sistema', status: 'pendente', local: true });
-    if (consultasAmanha.length > 0) alertas.push({ tipo: 'geral', titulo: 'Consultas Amanhã', mensagem: `Você tem ${consultasAmanha.length} consulta(s) para amanhã.`, criadoPor: 'Sistema', status: 'pendente', local: true });
+    if (consultasHoje.length > 0) alertas.push({ id: `local-consultas-${hojeIso}`, tipo: 'geral', titulo: 'Consultas Hoje', mensagem: `Você tem ${consultasHoje.length} consulta(s) para hoje.`, criadoPor: 'Sistema', status: 'pendente', local: true });
+    if (consultasAmanha.length > 0) alertas.push({ id: `local-consultas-${amanhaIso}`, tipo: 'geral', titulo: 'Consultas Amanhã', mensagem: `Você tem ${consultasAmanha.length} consulta(s) para amanhã.`, criadoPor: 'Sistema', status: 'pendente', local: true });
     
-    return alertas;
+    return alertas.filter(a => !alertasLocaisDispensados.has(a.id));
 }
 
 // ========================================================
@@ -154,16 +165,53 @@ async function tratarResolverNotificacao(n, btnResolver) {
     }
 }
 
+// ========================================================
+// APAGAR NOTIFICAÇÃO
+// Alerta local: só sai da lista nesta sessão (ver
+// alertasLocaisDispensados acima). Notificação do banco: exclui
+// de fato o documento - funciona tanto pendente quanto resolvida,
+// pra permitir limpar o histórico da Central de Notificações.
+// ========================================================
+async function apagarNotificacao(n) {
+    const confirmou = await confirmarAcao(
+        'Deseja apagar esta notificação? Essa ação não pode ser desfeita.',
+        { titulo: 'Apagar notificação', textoConfirmar: 'Apagar' }
+    );
+    if (!confirmou) return;
+
+    if (n.local) {
+        alertasLocaisDispensados.add(n.id);
+        atualizarBadgeNotificacoes();
+        atualizarListaNotificacoes(document.getElementById('filtro-notificacoes')?.value || 'pendentes');
+        return;
+    }
+
+    try {
+        await deleteDoc(doc(db, "notificacoes", n.id));
+        showToast('Notificação apagada.', 'success');
+    } catch (error) {
+        console.error("Erro ao apagar notificação: ", error);
+        showToast('Falha ao apagar a notificação.', 'error');
+    }
+}
+
 export function initNotificacoes() {
     const lista = document.getElementById('notificacoes-lista');
     if (lista) {
         lista.addEventListener('click', async (e) => {
             const btnResolver = e.target.closest('.btn-resolver-notificacao');
-            if (!btnResolver) return;
+            const btnApagar = e.target.closest('.btn-apagar-notificacao');
+            if (!btnResolver && !btnApagar) return;
 
-            const id = btnResolver.getAttribute('data-id');
-            const n = clinicaState.notificacoes.find(x => String(x.id) === String(id));
+            const id = (btnResolver || btnApagar).getAttribute('data-id');
+            const n = clinicaState.notificacoes.find(x => String(x.id) === String(id))
+                || gerarAlertasLocais().find(x => String(x.id) === String(id));
             if (!n) return;
+
+            if (btnApagar) {
+                await apagarNotificacao(n);
+                return;
+            }
 
             await tratarResolverNotificacao(n, btnResolver);
         });
@@ -222,13 +270,11 @@ export function escutarNotificacoes() {
                 if (change.type === 'added' && change.doc.data().status === 'pendente') {
                     const n = { ...change.doc.data(), id: String(change.doc.id) };
 
-                    // Pendência de pagamento: quem está na recepção recebe o
-                    // popup de confirmação na hora, em vez de só o toast.
-                    if (n.tipo === 'pagamento_pendente' && clinicaState.sessao.perfil === 'recepcao') {
-                        tratarNotificacaoPagamento(n);
-                    } else {
-                        showToast(`Nova pendência: ${n.titulo}`, 'warning');
-                    }
+                    // Nenhum tipo de notificação interrompe a tela com popup
+                    // automático - toda pendência (inclusive pagamento) só
+                    // avisa por toast e fica esperando na Central de
+                    // Notificações até alguém clicar em "Resolver".
+                    showToast(`Nova pendência: ${n.titulo}`, 'warning');
                 }
             });
         }
@@ -282,8 +328,11 @@ export function atualizarListaNotificacoes(filtro = 'pendentes') {
         const dataFormatada = n.criadoEm ? new Date(n.criadoEm).toLocaleString('pt-BR') : 'Agora';
         const concluida = n.status === 'concluida';
 
-        // Os alertas locais ganham um botão informativo, sem precisar clicar em resolver
-        const botaoAcao = n.local 
+        // Alerta local ganha um selo informativo em vez de botão de
+        // resolver (não tem "onde resolver" - some sozinho quando a
+        // condição deixar de existir). Apagar continua disponível pra
+        // quem quiser tirar da lista antes disso.
+        const acaoPrincipal = n.local
             ? `<span class="badge info" title="Aviso Automático"><i class="fa-solid fa-robot"></i> Alerta de Sistema</span>`
             : (concluida
                 ? `<span class="badge success" title="${n.resolvidoAutomaticamente ? 'Resolvida automaticamente' : 'Resolvida por ' + escapeHTML(n.resolvidoPor || '')}">${n.resolvidoAutomaticamente ? '<i class="fa-solid fa-bolt"></i> Auto' : 'Resolvido'}</span>`
@@ -296,7 +345,12 @@ export function atualizarListaNotificacoes(filtro = 'pendentes') {
                 <span style="color: var(--text-light); font-size: 0.85rem;">${escapeHTML(n.mensagem)}</span><br>
                 <span style="color: var(--text-light); font-size: 0.7rem;">Criado por ${escapeHTML(n.criadoPor || 'Sistema')} em ${dataFormatada}</span>
             </div>
-            ${botaoAcao}
+            <div class="row-actions notif-acoes">
+                ${acaoPrincipal}
+                <button class="btn-action btn-delete btn-apagar-notificacao" data-id="${n.id}" title="Apagar notificação">
+                    <i class="fa-solid fa-trash"></i>
+                </button>
+            </div>
         </div>`;
     }).join('');
 }

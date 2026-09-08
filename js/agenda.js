@@ -556,13 +556,6 @@ export function initAgenda() {
     const agendaContainer = document.getElementById('agenda-professionals');
     if (agendaContainer) {
         agendaContainer.addEventListener('click', async (e) => {
-            const btnConfirmarPagamento = e.target.closest('.btn-confirmar-pagamento-agenda');
-            if (btnConfirmarPagamento) {
-                e.stopPropagation();
-                abrirModalPagamento(btnConfirmarPagamento.getAttribute('data-id'));
-                return;
-            }
-
             const btnRemoverBloqueio = e.target.closest('.btn-remover-bloqueio');
             if (btnRemoverBloqueio) {
                 e.stopPropagation();
@@ -588,74 +581,118 @@ export function initAgenda() {
                 }
             }
         });
+    }
 
-        agendaContainer.addEventListener('change', async (e) => {
-            if (e.target.classList.contains('select-status-agenda')) {
-                const novoStatus = e.target.value;
-                const idAgendamento = e.target.getAttribute('data-id');
+    // ==========================================
+    // MODAL DE DETALHE DO AGENDAMENTO (aberto ao clicar num card
+    // ocupado - ver abrirModalDetalheAgendamento). Reúne aqui a troca
+    // de status, a confirmação de pagamento e o cancelamento, que
+    // antes viviam soltos dentro do card na grade.
+    // ==========================================
+    const modalDetalhe = document.getElementById('modal-detalhe-agendamento');
+    const selectStatusDetalhe = document.getElementById('detalhe-agendamento-status');
+    const btnPagarDetalhe = document.getElementById('btn-confirmar-pagamento-detalhe');
+    const btnCancelarDetalhe = document.getElementById('btn-cancelar-consulta-detalhe');
+    const btnCloseDetalhe = document.getElementById('btn-close-detalhe-agendamento');
 
-                if (novoStatus === 'confirmado') {
-                    const agendamento = clinicaState.agenda.agendamentos.find(a => String(a.id) === String(idAgendamento));
-                    if (agendamento && Number(agendamento.valorAtendimento || 0) > 0) {
-                        await updateDoc(doc(db, "agendamentos", idAgendamento), { statusPagamento: 'pendente' });
-                        abrirModalPagamento(idAgendamento);
-                        return;
-                    }
+    if (btnCloseDetalhe) {
+        btnCloseDetalhe.addEventListener('click', () => {
+            modalDetalhe.classList.remove('active');
+            agendamentoIdParaAtualizar = null;
+        });
+    }
 
-                    agendamentoIdParaAtualizar = idAgendamento;
-                    document.getElementById('form-confirmar-agendamento').reset();
-                    modalConfirmarAgendamento.classList.add('active');
+    if (btnPagarDetalhe) {
+        btnPagarDetalhe.addEventListener('click', () => {
+            if (!agendamentoIdParaAtualizar) return;
+            modalDetalhe.classList.remove('active');
+            abrirModalPagamento(agendamentoIdParaAtualizar);
+        });
+    }
+
+    if (btnCancelarDetalhe) {
+        btnCancelarDetalhe.addEventListener('click', () => {
+            if (!agendamentoIdParaAtualizar) return;
+            modalDetalhe.classList.remove('active');
+            document.getElementById('form-cancelar-agendamento').reset();
+            modalCancelarAgendamento.classList.add('active');
+        });
+    }
+
+    if (selectStatusDetalhe) {
+        selectStatusDetalhe.addEventListener('change', async (e) => {
+            if (!agendamentoIdParaAtualizar) return;
+            const idAgendamento = agendamentoIdParaAtualizar;
+            const novoStatus = e.target.value;
+
+            if (novoStatus === 'confirmado') {
+                const agendamento = clinicaState.agenda.agendamentos.find(a => String(a.id) === String(idAgendamento));
+                if (agendamento && Number(agendamento.valorAtendimento || 0) > 0) {
+                    await updateDoc(doc(db, "agendamentos", idAgendamento), { statusPagamento: 'pendente' });
+                    modalDetalhe.classList.remove('active');
+                    abrirModalPagamento(idAgendamento);
                     return;
                 }
 
-                if (novoStatus === 'cancelado') {
-                    agendamentoIdParaAtualizar = idAgendamento;
-                    document.getElementById('form-cancelar-agendamento').reset();
-                    modalCancelarAgendamento.classList.add('active');
-                    return;
-                }
+                document.getElementById('form-confirmar-agendamento').reset();
+                modalDetalhe.classList.remove('active');
+                modalConfirmarAgendamento.classList.add('active');
+                return;
+            }
 
-                try {
-                    const agendamentoAtual = clinicaState.agenda.agendamentos.find(a => String(a.id) === String(idAgendamento));
-                    const valorConsulta = Number(agendamentoAtual?.valorAtendimento || 0);
-                    const proximoStatusPagamento = novoStatus === 'concluido' && valorConsulta > 0
-                        ? 'pendente'
-                        : agendamentoAtual?.statusPagamento || 'nao_aplica';
+            if (novoStatus === 'cancelado') {
+                document.getElementById('form-cancelar-agendamento').reset();
+                modalDetalhe.classList.remove('active');
+                modalCancelarAgendamento.classList.add('active');
+                return;
+            }
 
-                    await updateDoc(doc(db, "agendamentos", idAgendamento), { 
+            try {
+                const agendamentoAtual = clinicaState.agenda.agendamentos.find(a => String(a.id) === String(idAgendamento));
+                const valorConsulta = Number(agendamentoAtual?.valorAtendimento || 0);
+                const proximoStatusPagamento = novoStatus === 'concluido' && valorConsulta > 0
+                    ? 'pendente'
+                    : agendamentoAtual?.statusPagamento || 'nao_aplica';
+
+                await updateDoc(doc(db, "agendamentos", idAgendamento), {
+                    status: novoStatus,
+                    statusPagamento: valorConsulta > 0 ? proximoStatusPagamento : 'nao_aplica'
+                });
+                showToast('Status atualizado!', 'success');
+
+                const idxAg = clinicaState.agenda.agendamentos.findIndex(a => String(a.id) === String(idAgendamento));
+                if (idxAg >= 0) {
+                    clinicaState.agenda.agendamentos[idxAg] = {
+                        ...clinicaState.agenda.agendamentos[idxAg],
                         status: novoStatus,
                         statusPagamento: valorConsulta > 0 ? proximoStatusPagamento : 'nao_aplica'
-                    });
-                    showToast('Status atualizado!', 'success');
-
-                    const idxAg = clinicaState.agenda.agendamentos.findIndex(a => String(a.id) === String(idAgendamento));
-                    if (idxAg >= 0) {
-                        clinicaState.agenda.agendamentos[idxAg] = {
-                            ...clinicaState.agenda.agendamentos[idxAg],
-                            status: novoStatus,
-                            statusPagamento: valorConsulta > 0 ? proximoStatusPagamento : 'nao_aplica'
-                        };
-                    }
-
-                    if (novoStatus === 'concluido') {
-                        const agendamentoConcluido = clinicaState.agenda.agendamentos.find(a => String(a.id) === String(idAgendamento));
-                        if (agendamentoConcluido && Number(agendamentoConcluido.valorAtendimento || 0) > 0) {
-                            abrirModalPagamento(idAgendamento);
-                            await criarNotificacao({
-                                tipo: 'pagamento_pendente',
-                                titulo: 'Confirmar pagamento',
-                                mensagem: `A consulta de ${agendamentoConcluido.pacNome} (${agendamentoConcluido.procedimentoNome || agendamentoConcluido.tipo || 'Consulta'}) foi concluída.`,
-                                pacienteId: agendamentoConcluido.pacId,
-                                pacienteNome: agendamentoConcluido.pacNome
-                            });
-                        }
-                    }
-
-                    atualizarAgenda(); 
-                } catch (error) {
-                    console.error("Erro ao atualizar status: ", error);
-                    showToast('Erro ao atualizar.', 'error');
+                    };
                 }
+
+                if (novoStatus === 'concluido') {
+                    const agendamentoConcluido = clinicaState.agenda.agendamentos.find(a => String(a.id) === String(idAgendamento));
+                    if (agendamentoConcluido && Number(agendamentoConcluido.valorAtendimento || 0) > 0) {
+                        modalDetalhe.classList.remove('active');
+                        abrirModalPagamento(idAgendamento);
+                        await criarNotificacao({
+                            tipo: 'pagamento_pendente',
+                            titulo: 'Confirmar pagamento',
+                            mensagem: `A consulta de ${agendamentoConcluido.pacNome} (${agendamentoConcluido.procedimentoNome || agendamentoConcluido.tipo || 'Consulta'}) foi concluída.`,
+                            pacienteId: agendamentoConcluido.pacId,
+                            pacienteNome: agendamentoConcluido.pacNome
+                        });
+                    } else {
+                        modalDetalhe.classList.remove('active');
+                    }
+                } else {
+                    modalDetalhe.classList.remove('active');
+                }
+
+                agendamentoIdParaAtualizar = null;
+                atualizarAgenda();
+            } catch (error) {
+                console.error("Erro ao atualizar status: ", error);
+                showToast('Erro ao atualizar.', 'error');
             }
         });
     }
@@ -1158,49 +1195,74 @@ function abrirDetalheRapido(idAgendamento, diaIso) {
 function renderizarSlotOcupado(slot, agendamento) {
     const statusAtual = agendamento.status || 'agendado';
     slot.className = 'appointment-slot occupied';
-    slot.dataset.status = statusAtual; 
-    
+    slot.dataset.status = statusAtual;
+    slot.dataset.id = agendamento.id;
+
     const nomeAtendimento = agendamento.procedimentoNome || agendamento.tipo || 'Consulta';
     const pagamentoPendente = Number(agendamento.valorAtendimento || 0) > 0 && agendamento.statusPagamento !== 'pago' && agendamento.statusPagamento !== 'nao_aplica';
-    
-    // Selos de pagamento refeitos para ficarem minúsculos e elegantes
-    const badgePagamento = agendamento.statusPagamento === 'pago'
-        ? '<span class="badge success" style="font-size:0.65rem; padding: 2px 6px;">💰 Pago</span>'
-        : agendamento.statusPagamento === 'pendente'
-            ? '<span class="badge warning" style="font-size:0.65rem; padding: 2px 6px;">⏳ Pendente</span>'
-            : agendamento.statusPagamento === 'nao_aplica'
-                ? '<span class="badge neutral" style="font-size:0.65rem; padding: 2px 6px;">Pacote</span>'
-                : '<span class="badge warning" style="font-size:0.65rem; padding: 2px 6px;">S/ cobr.</span>';
 
     const selectVisao = document.getElementById('agenda-visao');
     const mostrarProfissional = selectVisao && selectVisao.value === 'salas';
     const nomeProfissional = mostrarProfissional ? clinicaState.profissionais.find(p => String(p.id) === String(agendamento.profId))?.nome || 'Profissional' : '';
 
-    // Removemos a classe "input-premium" do select para não estourar o tamanho
+    // Card enxuto: só o essencial pra reconhecer a consulta na grade.
+    // Sala, valor, forma de pagamento e troca de status ficam no modal
+    // de detalhe (aberto ao clicar) - ver abrirModalDetalheAgendamento().
     slot.innerHTML = `
-        <div class="appt-slot-header" style="margin-bottom: -2px;">
-            <p class="patient-name" title="${escapeHTML(agendamento.pacNome)}" style="margin: 0; font-size: 0.9rem; font-weight: 700;">${escapeHTML(agendamento.pacNome)}</p>
-        </div>
-        <span class="appointment-type" style="font-size: 0.75rem; line-height: 1.2;">
-            ${escapeHTML(nomeAtendimento)}${mostrarProfissional ? `<br><span style="color: var(--text-light);">com <b>${escapeHTML(nomeProfissional)}</b></span>` : ''}
-        </span>
-        
-        <div class="appt-badges">
-            ${badgePagamento}
-            ${agendamento.sala && !mostrarProfissional ? `<span class="badge primary" style="font-size:0.65rem; padding: 2px 6px;"><i class="fa-solid fa-door-open"></i> Sala ${escapeHTML(agendamento.sala)}</span>` : ''}
-            ${agendamento.valorAtendimento ? `<span class="badge info" style="font-size:0.65rem; padding: 2px 6px;"><i class="fa-solid fa-dollar-sign"></i> ${agendamento.valorAtendimento.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>` : ''}
-        </div>
-
-        ${pagamentoPendente ? `<button type="button" class="btn-primary btn-confirmar-pagamento-agenda">Confirmar Pagto</button>` : ''}
-        
-        <select class="select-status-agenda" data-id="${agendamento.id}">
-            <option value="agendado" ${statusAtual === 'agendado' ? 'selected' : ''}>🗓️ Agendado</option>
-            <option value="confirmado" ${statusAtual === 'confirmado' ? 'selected' : ''}>✅ Confirmado</option>
-            <option value="aguardando_atendimento" ${statusAtual === 'aguardando_atendimento' ? 'selected' : ''}>⏳ Aguardando</option>
-            <option value="concluido" ${statusAtual === 'concluido' ? 'selected' : ''}>🏁 Concluído</option>
-            <option value="cancelado" ${statusAtual === 'cancelado' ? 'selected' : ''}>❌ Cancelado</option>
-        </select>
+        <p class="appt-card-nome" title="${escapeHTML(agendamento.pacNome)}">${escapeHTML(agendamento.pacNome)}</p>
+        <span class="appt-card-tipo">${escapeHTML(nomeAtendimento)}${mostrarProfissional ? ` · ${escapeHTML(nomeProfissional)}` : ''}</span>
+        ${pagamentoPendente ? '<span class="appt-card-pendencia"><i class="fa-solid fa-hand-holding-dollar"></i> Pagamento pendente</span>' : ''}
     `;
+
+    slot.addEventListener('click', () => abrirModalDetalheAgendamento(agendamento.id));
+}
+
+// ========================================================
+// MODAL DE DETALHE DO AGENDAMENTO
+// Concentra tudo que antes ficava espremido dentro do card da
+// grade: tipo, profissional, sala, valor, forma/status de
+// pagamento, troca de status e ação de cancelar. O card na
+// grade agora só precisa mostrar paciente + tipo (ver
+// renderizarSlotOcupado acima).
+// ========================================================
+function abrirModalDetalheAgendamento(idAgendamento) {
+    const modal = document.getElementById('modal-detalhe-agendamento');
+    const agendamento = clinicaState.agenda.agendamentos.find(a => String(a.id) === String(idAgendamento));
+    if (!modal || !agendamento) return;
+
+    agendamentoIdParaAtualizar = idAgendamento;
+
+    const profissional = clinicaState.profissionais.find(p => String(p.id) === String(agendamento.profId));
+    const nomeAtendimento = agendamento.procedimentoNome || agendamento.tipo || 'Consulta';
+    const dataFormatada = agendamento.data ? `${agendamento.data.split('-').reverse().join('/')} às ${agendamento.hora || ''}` : '';
+
+    const BADGE_PAGAMENTO = {
+        pago: '💰 Pago',
+        pendente: '⏳ Pendente',
+        nao_aplica: 'Pacote / sem cobrança'
+    };
+
+    document.getElementById('detalhe-agendamento-titulo').textContent = agendamento.pacNome || 'Consulta';
+    document.getElementById('detalhe-agendamento-info').innerHTML = `
+        <div class="detalhe-info-row"><span class="rotulo">Atendimento</span><span class="valor">${escapeHTML(nomeAtendimento)}</span></div>
+        <div class="detalhe-info-row"><span class="rotulo">Profissional</span><span class="valor">${escapeHTML(profissional ? profissional.nome : '-')}</span></div>
+        <div class="detalhe-info-row"><span class="rotulo">Data / Horário</span><span class="valor">${escapeHTML(dataFormatada)}</span></div>
+        <div class="detalhe-info-row"><span class="rotulo">Sala</span><span class="valor">${agendamento.sala ? escapeHTML(agendamento.sala) : '-'}</span></div>
+        <div class="detalhe-info-row"><span class="rotulo">Valor</span><span class="valor">${agendamento.valorAtendimento ? formatCurrency(agendamento.valorAtendimento) : '-'}</span></div>
+        <div class="detalhe-info-row"><span class="rotulo">Pagamento</span><span class="valor">${BADGE_PAGAMENTO[agendamento.statusPagamento] || '-'}</span></div>
+    `;
+
+    const selectStatus = document.getElementById('detalhe-agendamento-status');
+    if (selectStatus) selectStatus.value = agendamento.status || 'agendado';
+
+    const pagamentoPendente = Number(agendamento.valorAtendimento || 0) > 0 && agendamento.statusPagamento !== 'pago' && agendamento.statusPagamento !== 'nao_aplica';
+    const btnPagar = document.getElementById('btn-confirmar-pagamento-detalhe');
+    if (btnPagar) btnPagar.style.display = pagamentoPendente ? 'block' : 'none';
+
+    const btnCancelar = document.getElementById('btn-cancelar-consulta-detalhe');
+    if (btnCancelar) btnCancelar.style.display = agendamento.status === 'cancelado' ? 'none' : 'block';
+
+    modal.classList.add('active');
 }
 
 export async function carregarBloqueios() {

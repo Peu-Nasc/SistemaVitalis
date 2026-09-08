@@ -40,13 +40,13 @@ if (host === 'elisangela.sistemavitalis.com.br') {
     // AMBIENTE DE DESENVOLVIMENTO (VSCode / Localhost / Domínio Raiz)
     // Usando a chave da Elisangela como padrão para você conseguir testar no seu PC
     firebaseConfig = {
-        apiKey: "AIzaSyAUL4a9jX__kx2dR-dZioalQxM7QxZPSl0",
-        authDomain: "vitalis---elisangela.firebaseapp.com",
-        projectId: "vitalis---elisangela",
-        storageBucket: "vitalis---elisangela.firebasestorage.app",
-        messagingSenderId: "527275326414",
-        appId: "1:527275326414:web:d9bc13089c42f5d783499f"
-    };
+  apiKey: "AIzaSyD0IiMD48j88dVv2XAnRIItJjoTEITEMiw",
+  authDomain: "clinicamed-69b57.firebaseapp.com",
+  projectId: "clinicamed-69b57",
+  storageBucket: "clinicamed-69b57.firebasestorage.app",
+  messagingSenderId: "887597358188",
+  appId: "1:887597358188:web:80602df42ef4039fb90c49"
+};
     console.log("Conectado ao banco: Ambiente Local/Teste");
 }
 

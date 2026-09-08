@@ -762,6 +762,30 @@ select.input-premium { cursor: pointer; }
 /* =========================================================
    8. AGENDA MULTIPROFISSIONAL (CALENDÁRIO GRID)
    ========================================================= */
+
+/* Cabeçalho em 2 linhas: navegação de período (mais usada) em
+   cima, filtros/ações (menos usados) embaixo - evita amontoar
+   8 controles numa linha só. */
+.agenda-header-stack {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+}
+
+.agenda-controls-nav {
+    justify-content: flex-start;
+}
+
+.agenda-controls-filtros {
+    padding-top: 10px;
+    border-top: 1px dashed var(--border-color);
+}
+
+.agenda-controls-spacer { flex: 1; }
+
+.btn-full { width: 100%; }
+.mt-10 { margin-top: 10px; }
+
 .agenda-controls {
     display: flex;
     gap: 12px;
@@ -1106,7 +1130,7 @@ select.input-premium { cursor: pointer; }
     display: flex;
     flex-direction: column;
     justify-content: center;
-    gap: 6px;
+    gap: 4px;
     box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     transition: box-shadow 0.15s ease, transform 0.15s ease;
     overflow: hidden;
@@ -1115,6 +1139,37 @@ select.input-premium { cursor: pointer; }
 .appointment-slot.occupied:hover {
     box-shadow: 0 4px 10px rgba(0,0,0,0.09);
     transform: translateY(-1px);
+}
+
+/* Card enxuto: nome + tipo (1 linha) + selo único de pendência,
+   se houver. Tudo o mais (sala, valor, forma de pagamento, troca
+   de status) mora agora no modal de detalhe aberto ao clicar. */
+.appt-card-nome {
+    margin: 0;
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--text-main);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.appt-card-tipo {
+    font-size: 0.75rem;
+    color: var(--text-light);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.appt-card-pendencia {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: #b45309;
+    margin-top: 2px;
 }
 
 /* Container para agrupar os selos de Sala, Pagamento e Valor */
@@ -1151,6 +1206,27 @@ select.input-premium { cursor: pointer; }
 .appointment-slot.occupied[data-status="confirmado"] { border-left-color: #0d6efd; background-color: #cfe2ff; }
 .appointment-slot.occupied[data-status="aguardando_atendimento"] { border-left-color: #ffc107; background-color: #fff3cd; }
 .appointment-slot.occupied[data-status="concluido"] { border-left-color: #198754; background-color: #d1e7dd; }
+
+/* ---------- MODAL DE DETALHE DO AGENDAMENTO ---------- */
+.detalhe-info-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.detalhe-info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.88rem;
+}
+
+.detalhe-info-row:last-child { border-bottom: none; padding-bottom: 0; }
+.detalhe-info-row .rotulo { color: var(--text-light); font-weight: 600; }
+.detalhe-info-row .valor { color: var(--text-main); font-weight: 600; text-align: right; }
 
 .appointment-slot.blocked {
     background: repeating-linear-gradient(45deg, #f1f3f5, #f1f3f5 8px, #e9ecef 8px, #e9ecef 16px);
@@ -1996,6 +2072,11 @@ summary.timeline-meta:hover {
 .row-actions {
     display: flex;
     gap: 8px;
+}
+
+.notif-acoes {
+    align-items: center;
+    flex-shrink: 0;
 }
 
 .icon-primary { color: var(--primary-light); }

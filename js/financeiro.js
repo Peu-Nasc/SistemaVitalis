@@ -899,7 +899,7 @@ function renderizarGraficoReceitaPagamento(lancamentosFiltrados) {
     if (!ctx) return;
     if (chartReceitaPagamentoInstance) chartReceitaPagamentoInstance.destroy();
 
-    const ROTULOS_PAGAMENTO = { 'Pix': 'Pix', 'Credito': 'Cartão de Crédito', 'Debito': 'Cartão de Débito', 'Boleto': 'Boleto/Transferência', 'Dinheiro': 'Dinheiro' };
+    const ROTULOS_PAGAMENTO = { 'Pix': 'Pix', 'Credito': 'Cartão de Crédito', 'Debito': 'Cartão de Débito', 'Boleto': 'Boleto/Transferência', 'Dinheiro': 'Dinheiro', 'Convênio':'Convênio' };
     const porForma = {};
 
     lancamentosFiltrados
@@ -1018,6 +1018,7 @@ export function atualizarTabelaFinanceiro(filtroTexto = '', filtroMes = 'todos')
         if(l.pagamento === 'Pix') iconPag = 'fa-brands fa-pix';
         else if(l.pagamento.includes('Credito') || l.pagamento.includes('Debito')) iconPag = 'fa-credit-card';
         else if(l.pagamento === 'Boleto') iconPag = 'fa-barcode';
+        else if(l.pagamento === 'Convênio') iconPag = 'fa-file-contract';
         
         let corStatus = l.status === 'Recebido/Pago' ? 'success' : (l.status === 'Glosa' || l.status === 'Inadimplente' ? 'danger bg-danger' : 'warning');
 
@@ -1095,7 +1096,8 @@ const CATEGORIAS_PAGAMENTO = [
     { chave: 'Credito', label: 'Cartão de Crédito' },
     { chave: 'Debito', label: 'Cartão de Débito' },
     { chave: 'Boleto', label: 'Boleto / Transferência' },
-    { chave: 'Dinheiro', label: 'Dinheiro Físico' }
+    { chave: 'Dinheiro', label: 'Dinheiro Físico' },
+    { chave: 'Convênio', label: 'Convênio' }
 ];
 
 const CATEGORIAS_DESPESA_TIPO = [

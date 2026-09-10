@@ -13,22 +13,27 @@ import { initAjuda } from './ajuda.js';
 
 // ========================================================
 // TRAVA ANTI-SPAM (PREVENÇÃO DE MÚLTIPLAS REQUISIÇÕES)
-// Cria um intervalo (cooldown) obrigatório de 1 segundo 
-// entre cliques repetidos em qualquer botão do sistema.
+// Cria um intervalo (cooldown) obrigatório entre cliques repetidos
+// NO MESMO botão. Antes o cronômetro era único pra qualquer botão
+// do sistema - isso bloqueava silenciosamente cliques legítimos em
+// botões DIFERENTES feitos em sequência rápida (ex: abrir um modal
+// e já clicar em "Confirmar"), inclusive travando envios de
+// formulário sem mostrar erro nenhum. Agora o cooldown é por botão.
 // ========================================================
-let ultimoClique = 0;
+const ultimosCliquesPorBotao = new WeakMap();
 document.addEventListener('click', (e) => {
     // Verifica se o que foi clicado é um botão ou um ícone dentro dele
     const btn = e.target.closest('button');
     if (btn) {
         const agora = Date.now();
-        // Se o último clique foi há menos de 1000 milissegundos (1s), bloqueia!
-        if (agora - ultimoClique < 1000) {
+        const ultimoCliqueNesseBotao = ultimosCliquesPorBotao.get(btn) || 0;
+        // Se o último clique NESSE MESMO botão foi há menos de 800ms, bloqueia!
+        if (agora - ultimoCliqueNesseBotao < 800) {
             e.preventDefault();     // Impede o formulário de ser enviado
             e.stopPropagation();    // Impede o JavaScript de executar a ação
             return;
         }
-        ultimoClique = agora;
+        ultimosCliquesPorBotao.set(btn, agora);
     }
 }, true); // O parâmetro 'true' força essa verificação a rodar ANTES das outras
 

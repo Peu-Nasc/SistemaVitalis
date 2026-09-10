@@ -2,7 +2,7 @@ import { clinicaState } from './state.js';
 import { showToast, escapeHTML, confirmarAcao } from './Ferramentas.js';
 import { db } from './firebase.js';
 import { collection, addDoc, doc, updateDoc, deleteDoc, query, where, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js';
-import { registrarAuditoria } from './auditoria.js';
+import { abrirModalPagamento } from './agenda.js';
 import { abrirProntuario } from './pacientes.js';
 
 const ICONES_TIPO = {
@@ -16,23 +16,32 @@ const ICONES_TIPO = {
 };
 
 // ========================================================
-// POPUP DE CONFIRMAÇÃO DE PAGAMENTO (fundo desfocado)
-// Disparado quando uma consulta é marcada como "Concluído" na
-// Agenda (ver agenda.js). Reaproveita o modal de confirmação
-// que já existe no sistema (Ferramentas.js) em vez de travar
-// a recepção com mais um componente novo.
+// RESOLVER "CONFIRMAR PAGAMENTO" DE VERDADE
+// Antes, resolver essa notificação só marcava o AVISO como
+// concluído - o agendamento continuava sem pagamento registrado e
+// nada entrava no Livro Caixa. Agora a notificação carrega o
+// agendamentoId (ver criarNotificacao em agenda.js) e resolver ela
+// leva a pessoa pra Agenda e abre o mesmo modal de pagamento usado
+// ali - é ele quem marca o agendamento como pago, lança a receita
+// no Financeiro E encerra esta notificação, tudo de uma vez (ver
+// abrirModalPagamento em agenda.js).
 // ========================================================
 async function tratarNotificacaoPagamento(n) {
-    const confirmou = await confirmarAcao(
-        `${n.mensagem} O pagamento foi realizado?`,
-        { titulo: n.titulo || 'Confirmar pagamento', textoConfirmar: 'Pagamento Confirmado', perigoso: false }
-    );
-
-    if (!confirmou) {
-        // Sem confirmação agora: a pendência continua na lista normal de
-        // Notificações (status ainda "pendente"), a recepção resolve depois.
+    if (n.agendamentoId) {
+        const btnAgenda = document.querySelector('.menu-btn[data-target="agenda"]');
+        if (btnAgenda) btnAgenda.click();
+        await abrirModalPagamento(n.agendamentoId, n.id);
         return;
     }
+
+    // Notificação antiga (criada antes desta correção), sem vínculo com
+    // o agendamento - não dá pra abrir o pagamento de verdade, então só
+    // permite dispensar o aviso manualmente.
+    const confirmou = await confirmarAcao(
+        `${n.mensagem} O pagamento foi realizado? (Notificação antiga, sem vínculo direto com o agendamento - confirme o lançamento manualmente no Livro Caixa se ainda não tiver feito isso.)`,
+        { titulo: n.titulo || 'Confirmar pagamento', textoConfirmar: 'Marcar como resolvida', perigoso: false }
+    );
+    if (!confirmou) return;
 
     try {
         await updateDoc(doc(db, "notificacoes", n.id), {
@@ -40,17 +49,10 @@ async function tratarNotificacaoPagamento(n) {
             resolvidoPor: clinicaState.sessao.nome,
             resolvidoEm: new Date().toISOString()
         });
-
-        await registrarAuditoria({
-            acao: 'Edição',
-            modulo: 'Financeiro',
-            descricao: `Pagamento confirmado: ${n.pacienteNome || 'paciente'}`
-        });
-
-        showToast('Pagamento confirmado com sucesso.', 'success');
+        showToast('Notificação marcada como resolvida.', 'success');
     } catch (error) {
         console.error("Erro ao confirmar pagamento: ", error);
-        showToast('Falha ao confirmar pagamento. Tente novamente pela lista de Notificações.', 'error');
+        showToast('Falha ao atualizar. Tente novamente.', 'error');
     }
 }
 
@@ -223,17 +225,21 @@ export function initNotificacoes() {
     }
 }
 
-// Usado por outros módulos (ex: pacientes.js) para abrir uma pendência.
-// Não precisa recarregar nada na tela: quem está com a aba de Notificações
-// aberta em QUALQUER sessão recebe isso na hora via escutarNotificacoes().
-export async function criarNotificacao({ tipo = 'geral', titulo, mensagem, pacienteId = null, pacienteNome = null }) {
+// Usado por outros módulos (ex: pacientes.js, agenda.js) para abrir uma
+// pendência. Não precisa recarregar nada na tela: quem está com a aba de
+// Notificações aberta em QUALQUER sessão recebe isso na hora via
+// escutarNotificacoes(). Retorna a referência do documento criado - a
+// Agenda usa isso pra linkar a notificação de "pagamento pendente" ao
+// agendamento de verdade (ver agendamentoId e abrirModalPagamento).
+export async function criarNotificacao({ tipo = 'geral', titulo, mensagem, pacienteId = null, pacienteNome = null, agendamentoId = null }) {
     try {
-        await addDoc(collection(db, "notificacoes"), {
+        return await addDoc(collection(db, "notificacoes"), {
             tipo,
             titulo,
             mensagem,
             pacienteId,
             pacienteNome,
+            agendamentoId,
             status: 'pendente',
             criadoPor: clinicaState.sessao.nome,
             criadoEm: new Date().toISOString(),
@@ -241,6 +247,7 @@ export async function criarNotificacao({ tipo = 'geral', titulo, mensagem, pacie
         });
     } catch (error) {
         console.error("Erro ao criar notificação: ", error);
+        return null;
     }
 }
 

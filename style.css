@@ -1228,6 +1228,44 @@ select.input-premium { cursor: pointer; }
 .detalhe-info-row .rotulo { color: var(--text-light); font-weight: 600; }
 .detalhe-info-row .valor { color: var(--text-main); font-weight: 600; text-align: right; }
 
+/* ---------- MODAL DE CONFIRMAÇÃO DE PAGAMENTO: resumo + aviso de duplicidade ---------- */
+.pagamento-resumo-consulta {
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    margin-bottom: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.pagamento-resumo-consulta .detalhe-info-row {
+    font-size: 0.85rem;
+    padding-bottom: 6px;
+}
+
+.pagamento-aviso-duplicado {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    background-color: #fff3cd;
+    border: 1px solid #ffc107;
+    color: #664d03;
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+    margin-bottom: 16px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    line-height: 1.4;
+}
+
+.pagamento-aviso-duplicado i {
+    color: #b45309;
+    margin-top: 2px;
+    flex-shrink: 0;
+}
+
 .appointment-slot.blocked {
     background: repeating-linear-gradient(45deg, #f1f3f5, #f1f3f5 8px, #e9ecef 8px, #e9ecef 16px);
     border-left: 4px solid #adb5bd;

@@ -690,6 +690,7 @@
                                         <option value="Debito">Cartão de Débito</option>
                                         <option value="Boleto">Boleto / Transferência</option>
                                         <option value="Dinheiro">Dinheiro Físico</option>
+                                        <option value="Convênio">Convênio</option>
                                     </select>
                                 </div>
                                 <div class="form-group full-width"><label>Valor (R$) *</label><input type="text" id="fr-valor" class="input-premium" required placeholder="0,00"></div>
@@ -1103,6 +1104,7 @@
                             <option value="Debito">Cartão de Débito</option>
                             <option value="Boleto">Boleto / Transferência</option>
                             <option value="Dinheiro">Dinheiro Físico</option>
+                            <option value="Convênio">Convênio</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -1349,6 +1351,23 @@
                 <button class="btn-close-modal" id="btn-close-confirmar-agendamento" type="button"><i class="fa-solid fa-xmark"></i></button>
             </header>
             <div class="modal-body">
+                <!-- Resumo somente-leitura: quem está confirmando vê exatamente
+                     o que está sendo cobrado antes de mexer em valor/forma. -->
+                <div class="pagamento-resumo-consulta" id="pagamento-resumo-consulta">
+                    <div class="detalhe-info-row"><span class="rotulo">Paciente</span><span class="valor" id="pagamento-resumo-paciente">-</span></div>
+                    <div class="detalhe-info-row"><span class="rotulo">Atendimento</span><span class="valor" id="pagamento-resumo-atendimento">-</span></div>
+                    <div class="detalhe-info-row"><span class="rotulo">Profissional</span><span class="valor" id="pagamento-resumo-profissional">-</span></div>
+                    <div class="detalhe-info-row"><span class="rotulo">Data / Horário</span><span class="valor" id="pagamento-resumo-data">-</span></div>
+                </div>
+
+                <!-- Só aparece quando a consulta já tinha pagamento registrado e a
+                     pessoa confirmou explicitamente que quer lançar um valor
+                     adicional (ver abrirModalPagamento em agenda.js). -->
+                <div class="pagamento-aviso-duplicado" id="pagamento-aviso-duplicado" style="display:none;">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    <span id="pagamento-aviso-duplicado-texto"></span>
+                </div>
+
                 <form id="form-confirmar-agendamento" class="form-grid">
                     <div class="form-group full-width">
                         <label class="checkbox-label"><input type="checkbox" id="confirmacao-whatsapp"> Confirmação enviada via WhatsApp</label>
@@ -1364,6 +1383,7 @@
                             <option value="Debito">Cartão de Débito</option>
                             <option value="Dinheiro">Dinheiro</option>
                             <option value="Boleto">Boleto / Transferência</option>
+                            <option value="Convênio">Convênio</option>
                         </select>
                     </div>
                     <div class="form-group full-width">
@@ -1374,7 +1394,7 @@
                         <label>Outras observações (opcional)</label>
                         <textarea id="confirmacao-observacoes" class="textarea-form" rows="2"></textarea>
                     </div>
-                    <div class="form-actions full-width"><button type="submit" class="btn-primary"><i class="fa-solid fa-check"></i> Confirmar Pagamento</button></div>
+                    <div class="form-actions full-width"><button type="submit" class="btn-primary" id="btn-confirmar-pagamento-submit"><i class="fa-solid fa-check"></i> Confirmar Pagamento</button></div>
                 </form>
             </div>
         </div>

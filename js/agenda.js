@@ -1,12 +1,19 @@
 import { clinicaState } from './state.js';
 import { showToast, comEstadoDeCarregamento, escapeHTML, confirmarAcao, formatCurrency } from './Ferramentas.js';
 import { db } from './firebase.js';
-import { collection, addDoc, getDocs, doc, deleteDoc, updateDoc, query, where } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js';
+import { collection, addDoc, getDocs, doc, deleteDoc, updateDoc, query, where, runTransaction } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js';
 import { criarNotificacao } from './notificacoes.js';
 import { registrarAuditoria } from './auditoria.js';
 import { valorDoProcedimentoParaProfissional } from './procedimentos.js';
 
 let agendamentoIdParaAtualizar = null;
+
+// Quando o modal de pagamento é aberto a partir de uma notificação de
+// "pagamento pendente" (ver abrirModalPagamento), guardamos aqui o id
+// dessa notificação - assim que o pagamento é confirmado de verdade,
+// a notificação é resolvida junto, no mesmo passo (ver o submit de
+// #form-confirmar-agendamento, mais abaixo).
+let notificacaoIdEmResolucao = null;
 
 // ========================================================
 // NOVO: ALTERNADOR DE PERÍODO (Dia / Semana / Mês)
@@ -47,17 +54,17 @@ function obterBloqueio(profId, data, hora) {
     });
 }
 
-async function registrarPagamentoAgendamento(agendamento, formaPagamento, valorPago) {
-    if (!agendamento) return;
-
+// Monta o objeto do lançamento financeiro (sem gravar nada ainda) - separado
+// da gravação em si pra poder ser usado dentro da transação atômica abaixo.
+function montarDadosFinanceiroDoAgendamento(agendamento, formaPagamento, valorPago) {
     const valorBruto = parseFloat((valorPago ?? agendamento.valorAtendimento ?? 0).toString().replace(/\./g, '').replace(',', '.'));
-    if (!valorBruto || valorBruto <= 0) return;
+    if (!valorBruto || valorBruto <= 0) return null;
 
     const profissional = clinicaState.profissionais.find(p => String(p.id) === String(agendamento.profId));
     const hoje = new Date().toISOString().split('T')[0];
     const agoraIso = new Date().toISOString();
 
-    await addDoc(collection(db, "financeiro"), {
+    return {
         tipo: 'Receita',
         vinculo: `Consulta de ${agendamento.pacNome} - ${agendamento.procedimentoNome || agendamento.tipo || 'Consulta'}`,
         pagamento: formaPagamento,
@@ -78,24 +85,113 @@ async function registrarPagamentoAgendamento(agendamento, formaPagamento, valorP
         horaConsulta: agendamento.hora || null,
         pagoEm: agoraIso,
         pagoPor: clinicaState.sessao.nome || null
-    });
+    };
+}
 
-    await registrarAuditoria({
-        acao: 'Criação',
-        modulo: 'Financeiro',
-        descricao: `Pagamento confirmado: ${agendamento.pacNome} - ${agendamento.procedimentoNome || agendamento.tipo || 'Consulta'} (${formatCurrency(valorBruto)})`
+// ========================================================
+// CONFIRMAÇÃO DE PAGAMENTO - GRAVAÇÃO ATÔMICA
+// A trava do modal (abrirModalPagamento) olha o estado que JÁ estava
+// carregado na tela - o que não protege contra duas abas, ou duas
+// pessoas em dois computadores, confirmando o pagamento da MESMA
+// consulta ao mesmo tempo (nenhuma das duas vê o aviso, porque nenhuma
+// tela sabe da ação da outra até recarregar). Por isso a decisão final -
+// "essa consulta já está paga ou não" - não pode depender só da memória
+// do navegador: usamos uma transação do Firestore, que lê o documento
+// direto do banco e só grava se ele ainda estiver do jeito esperado,
+// tudo em uma operação só e indivisível. Se outra sessão pagou um
+// segundo antes, a transação é abortada e ninguém consegue duplicar.
+// ========================================================
+async function confirmarPagamentoTransacional(idAgendamento, dadosAgendamento, dadosFinanceiro, permitirMesmoJaPago) {
+    const refAgendamento = doc(db, "agendamentos", idAgendamento);
+    const refFinanceiroNovo = doc(collection(db, "financeiro"));
+
+    await runTransaction(db, async (transaction) => {
+        const snap = await transaction.get(refAgendamento);
+        if (!snap.exists()) {
+            throw new Error('AGENDAMENTO_NAO_ENCONTRADO');
+        }
+
+        const estadoAtualNoBanco = snap.data();
+        if (estadoAtualNoBanco.statusPagamento === 'pago' && !permitirMesmoJaPago) {
+            throw new Error('JA_PAGO_NO_BANCO');
+        }
+
+        transaction.update(refAgendamento, dadosAgendamento);
+        transaction.set(refFinanceiroNovo, dadosFinanceiro);
     });
 }
 
-function abrirModalPagamento(idAgendamento) {
+// Enquanto o modal estiver aberto por causa de uma consulta que JÁ estava
+// paga (usuário confirmou explicitamente que quer mesmo assim), guardamos
+// aqui pra: (1) o texto do botão/aviso do modal refletir que é um pagamento
+// adicional, e (2) o submit conseguir revalidar essa mesma condição sem
+// depender de o usuário não ter fechado/reaberto o modal no meio do caminho.
+let pagamentoAdicionalConfirmado = false;
+
+export async function abrirModalPagamento(idAgendamento, notificacaoId = null) {
     const modal = document.getElementById('modal-confirmar-agendamento');
     const form = document.getElementById('form-confirmar-agendamento');
     const agendamento = clinicaState.agenda.agendamentos.find(a => String(a.id) === String(idAgendamento));
 
     if (!modal || !form || !agendamento) return;
 
+    // ========================================================
+    // CAMADA DE SEGURANÇA CONTRA PAGAMENTO DUPLICADO
+    // Esta é a única função do sistema que abre a tela de cobrança de
+    // uma consulta - então é aqui, e só aqui, que travamos o caso mais
+    // perigoso: reabrir a cobrança de uma consulta que JÁ está marcada
+    // como paga. Isso vale não importa de onde a chamada veio (troca de
+    // status, botão "Confirmar Pagamento" do modal de detalhe, ou uma
+    // notificação antiga de pagamento pendente) - se a consulta já está
+    // paga, avisamos com os dados do pagamento existente e só deixamos
+    // continuar com confirmação explícita da pessoa.
+    // ========================================================
+    pagamentoAdicionalConfirmado = false;
+
+    if (agendamento.statusPagamento === 'pago') {
+        const dataPagamento = agendamento.pagoEm
+            ? new Date(agendamento.pagoEm).toLocaleString('pt-BR')
+            : 'data não registrada';
+        const valorJaPago = formatCurrency(Number(agendamento.valorAtendimento || 0));
+        const formaJaPaga = agendamento.observacaoConfirmacao?.formaPagamento || agendamento.pagamento || '';
+
+        const continuar = await confirmarAcao(
+            `Esta consulta já está marcada como PAGA: ${valorJaPago}${formaJaPaga ? ' via ' + formaJaPaga : ''}, em ${dataPagamento}${agendamento.pagoPor ? ' (confirmado por ' + agendamento.pagoPor + ')' : ''}. Continuar aqui vai criar um NOVO lançamento no Livro Caixa, somado ao pagamento já existente - só prossiga se for de fato um valor adicional (ex: complemento, taxa extra).`,
+            { titulo: 'Consulta já paga', textoConfirmar: 'Registrar pagamento adicional', perigoso: true }
+        );
+
+        if (!continuar) return;
+        pagamentoAdicionalConfirmado = true;
+    }
+
     agendamentoIdParaAtualizar = idAgendamento;
+    notificacaoIdEmResolucao = notificacaoId;
     form.reset();
+
+    // Resumo somente-leitura da consulta, pra quem está confirmando ver
+    // exatamente o que está sendo cobrado antes de digitar valor/forma.
+    const profissional = clinicaState.profissionais.find(p => String(p.id) === String(agendamento.profId));
+    const nomeAtendimento = agendamento.procedimentoNome || agendamento.tipo || 'Consulta';
+    const dataFormatada = agendamento.data ? `${agendamento.data.split('-').reverse().join('/')} às ${agendamento.hora || ''}` : '-';
+
+    const setTexto = (id, texto) => { const el = document.getElementById(id); if (el) el.textContent = texto; };
+    setTexto('pagamento-resumo-paciente', agendamento.pacNome || '-');
+    setTexto('pagamento-resumo-atendimento', nomeAtendimento);
+    setTexto('pagamento-resumo-profissional', profissional ? profissional.nome : '-');
+    setTexto('pagamento-resumo-data', dataFormatada);
+
+    const avisoDuplicado = document.getElementById('pagamento-aviso-duplicado');
+    const avisoDuplicadoTexto = document.getElementById('pagamento-aviso-duplicado-texto');
+    const btnSubmit = document.getElementById('btn-confirmar-pagamento-submit');
+    if (avisoDuplicado) avisoDuplicado.style.display = pagamentoAdicionalConfirmado ? 'flex' : 'none';
+    if (avisoDuplicadoTexto && pagamentoAdicionalConfirmado) {
+        avisoDuplicadoTexto.textContent = 'Você está registrando um pagamento ADICIONAL para uma consulta que já constava como paga. Confira o valor com atenção antes de salvar.';
+    }
+    if (btnSubmit) {
+        btnSubmit.innerHTML = pagamentoAdicionalConfirmado
+            ? '<i class="fa-solid fa-triangle-exclamation"></i> Confirmar Pagamento Adicional'
+            : '<i class="fa-solid fa-check"></i> Confirmar Pagamento';
+    }
 
     const valorBase = Number((agendamento.valorAtendimento ?? 0));
     const inputValor = document.getElementById('pagamento-valor');
@@ -445,6 +541,8 @@ export function initAgenda() {
         modalConfirmarAgendamento.classList.remove('active');
         modalCancelarAgendamento.classList.remove('active');
         agendamentoIdParaAtualizar = null;
+        notificacaoIdEmResolucao = null;
+        pagamentoAdicionalConfirmado = false;
         atualizarAgenda();
     }
 
@@ -478,6 +576,16 @@ export function initAgenda() {
             return;
         }
 
+        // Revalidação final, bem em cima do clique em salvar: se a consulta já
+        // consta como paga NESTE MOMENTO e a pessoa não passou pela confirmação
+        // explícita de "pagamento adicional" (ver abrirModalPagamento), barra
+        // aqui também - cobre o caso raro de o modal ter ficado aberto enquanto
+        // outra aba/usuário já registrou o pagamento dessa mesma consulta.
+        if (agendamento.statusPagamento === 'pago' && !pagamentoAdicionalConfirmado) {
+            showToast('Esta consulta já foi paga por outra ação enquanto o modal estava aberto. Feche e confira antes de continuar.', 'error');
+            return;
+        }
+
         await comEstadoDeCarregamento(btnSalvar, 'Confirmando...', async () => {
             try {
                 const statusFinal = agendamento.status === 'concluido' ? 'concluido' : 'confirmado';
@@ -497,14 +605,31 @@ export function initAgenda() {
                     }
                 };
 
-                await Promise.all([
-                    updateDoc(doc(db, "agendamentos", idAgendamento), updateData),
-                    registrarPagamentoAgendamento({
-                        ...agendamento,
-                        valorAtendimento: valorPago,
-                        status: statusFinal
-                    }, formaPagamento, valorPago)
-                ]);
+                const dadosFinanceiro = montarDadosFinanceiroDoAgendamento({
+                    ...agendamento,
+                    valorAtendimento: valorPago,
+                    status: statusFinal
+                }, formaPagamento, valorPago);
+
+                if (!dadosFinanceiro) {
+                    showToast('Informe um valor válido para o pagamento.', 'error');
+                    return;
+                }
+
+                // Grava tudo numa transação única do Firestore: ela lê o
+                // agendamento direto do banco (não da memória do navegador) e só
+                // efetiva a escrita se ele ainda não estiver pago - ou se a
+                // pessoa já confirmou explicitamente que quer um pagamento
+                // adicional (pagamentoAdicionalConfirmado). Isso fecha a brecha
+                // de duas abas/duas pessoas confirmando ao mesmo tempo: quem
+                // chega primeiro grava, quem chega depois é barrado na hora.
+                await confirmarPagamentoTransacional(idAgendamento, updateData, dadosFinanceiro, pagamentoAdicionalConfirmado);
+
+                await registrarAuditoria({
+                    acao: 'Criação',
+                    modulo: 'Financeiro',
+                    descricao: `Pagamento confirmado: ${agendamento.pacNome} - ${agendamento.procedimentoNome || agendamento.tipo || 'Consulta'} (${formatCurrency(dadosFinanceiro.valor)})`
+                });
 
                 const idxAgendamento = clinicaState.agenda.agendamentos.findIndex(a => String(a.id) === String(idAgendamento));
                 if (idxAgendamento >= 0) {
@@ -515,11 +640,43 @@ export function initAgenda() {
                 }
 
                 showToast('Pagamento confirmado e lançado no caixa!', 'success');
+
+                // Se esse pagamento foi aberto a partir de uma notificação
+                // (Central de Notificações > Resolver), ela é encerrada
+                // agora - o pagamento real já foi registrado, não faz
+                // sentido o aviso continuar pendente na lista.
+                if (notificacaoIdEmResolucao) {
+                    try {
+                        await updateDoc(doc(db, "notificacoes", notificacaoIdEmResolucao), {
+                            status: 'concluida',
+                            resolvidoPor: clinicaState.sessao.nome,
+                            resolvidoEm: new Date().toISOString()
+                        });
+                    } catch (error) {
+                        console.error("Erro ao encerrar notificação de pagamento: ", error);
+                    }
+                    notificacaoIdEmResolucao = null;
+                }
+
                 modalConfirmarAgendamento.classList.remove('active');
                 e.target.reset();
                 agendamentoIdParaAtualizar = null;
+                pagamentoAdicionalConfirmado = false;
                 atualizarAgenda(); 
             } catch (error) {
+                if (error.message === 'JA_PAGO_NO_BANCO') {
+                    // A transação recusou a gravação porque, no banco (não na
+                    // tela), essa consulta já constava paga - normalmente sinal
+                    // de que outra aba/pessoa acabou de confirmar o mesmo
+                    // pagamento segundos antes. Não deixamos duplicar.
+                    console.warn("Pagamento bloqueado: consulta já estava paga no banco de dados.");
+                    showToast('Esta consulta já foi paga (provavelmente em outra aba/computador). Feche este modal, atualize a página e confira o Livro Caixa antes de tentar de novo.', 'error');
+                    modalConfirmarAgendamento.classList.remove('active');
+                    agendamentoIdParaAtualizar = null;
+                    pagamentoAdicionalConfirmado = false;
+                    await carregarAgendamentos();
+                    return;
+                }
                 console.error("Erro ao confirmar pagamento: ", error);
                 showToast('Erro ao confirmar pagamento.', 'error');
             }
@@ -606,7 +763,17 @@ export function initAgenda() {
         btnPagarDetalhe.addEventListener('click', () => {
             if (!agendamentoIdParaAtualizar) return;
             modalDetalhe.classList.remove('active');
-            abrirModalPagamento(agendamentoIdParaAtualizar);
+
+            // Se já existe uma notificação de "pagamento pendente" aberta
+            // pra esse agendamento (criada quando a consulta foi marcada
+            // como Concluído), vincula ela aqui também - sem isso, pagar
+            // por este botão deixaria aquele aviso órfão, pendente pra
+            // sempre na Central de Notificações.
+            const notifExistente = clinicaState.notificacoes.find(n =>
+                n.tipo === 'pagamento_pendente' && n.status === 'pendente' && String(n.agendamentoId) === String(agendamentoIdParaAtualizar)
+            );
+
+            abrirModalPagamento(agendamentoIdParaAtualizar, notifExistente?.id || null);
         });
     }
 
@@ -627,10 +794,37 @@ export function initAgenda() {
 
             if (novoStatus === 'confirmado') {
                 const agendamento = clinicaState.agenda.agendamentos.find(a => String(a.id) === String(idAgendamento));
-                if (agendamento && Number(agendamento.valorAtendimento || 0) > 0) {
+                const temValor = agendamento && Number(agendamento.valorAtendimento || 0) > 0;
+                const jaEstaPaga = agendamento?.statusPagamento === 'pago';
+
+                // Só força pendência + tela de cobrança se a consulta ainda não
+                // tiver pagamento registrado. Antes, reselecionar "Confirmado"
+                // numa consulta que já estava paga voltava o statusPagamento pra
+                // "pendente" e reabria o modal de cobrança sem checar nada -
+                // era esse o caminho que deixava lançar o mesmo pagamento 2x no
+                // caixa (a trava de fato agora mora em abrirModalPagamento, mas
+                // aqui evitamos nem chegar a mexer no statusPagamento à toa).
+                if (temValor && !jaEstaPaga) {
                     await updateDoc(doc(db, "agendamentos", idAgendamento), { statusPagamento: 'pendente' });
                     modalDetalhe.classList.remove('active');
                     abrirModalPagamento(idAgendamento);
+                    return;
+                }
+
+                if (temValor && jaEstaPaga) {
+                    // Já paga: só confirma o status da consulta, sem tocar no
+                    // pagamento nem reabrir a cobrança.
+                    try {
+                        await updateDoc(doc(db, "agendamentos", idAgendamento), { status: 'confirmado' });
+                        const idxPago = clinicaState.agenda.agendamentos.findIndex(a => String(a.id) === String(idAgendamento));
+                        if (idxPago >= 0) clinicaState.agenda.agendamentos[idxPago].status = 'confirmado';
+                        showToast('Consulta confirmada (o pagamento já estava registrado).', 'success');
+                    } catch (error) {
+                        console.error("Erro ao confirmar consulta: ", error);
+                        showToast('Erro ao confirmar consulta.', 'error');
+                    }
+                    modalDetalhe.classList.remove('active');
+                    atualizarAgenda();
                     return;
                 }
 
@@ -673,17 +867,24 @@ export function initAgenda() {
                     const agendamentoConcluido = clinicaState.agenda.agendamentos.find(a => String(a.id) === String(idAgendamento));
                     if (agendamentoConcluido && Number(agendamentoConcluido.valorAtendimento || 0) > 0) {
                         modalDetalhe.classList.remove('active');
-                        abrirModalPagamento(idAgendamento);
-                        await criarNotificacao({
+                        const notif = await criarNotificacao({
                             tipo: 'pagamento_pendente',
                             titulo: 'Confirmar pagamento',
                             mensagem: `A consulta de ${agendamentoConcluido.pacNome} (${agendamentoConcluido.procedimentoNome || agendamentoConcluido.tipo || 'Consulta'}) foi concluída.`,
                             pacienteId: agendamentoConcluido.pacId,
-                            pacienteNome: agendamentoConcluido.pacNome
+                            pacienteNome: agendamentoConcluido.pacNome,
+                            agendamentoId: idAgendamento
                         });
-                    } else {
-                        modalDetalhe.classList.remove('active');
+                        // abrirModalPagamento já deixou agendamentoIdParaAtualizar
+                        // apontando pra ESTE agendamento - não pode ser zerado
+                        // aqui embaixo, senão o botão "Confirmar Pagamento" do
+                        // modal que acabou de abrir para de funcionar (é
+                        // exatamente o bug que travava a confirmação).
+                        abrirModalPagamento(idAgendamento, notif?.id || null);
+                        atualizarAgenda();
+                        return;
                     }
+                    modalDetalhe.classList.remove('active');
                 } else {
                     modalDetalhe.classList.remove('active');
                 }

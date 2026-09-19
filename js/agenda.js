@@ -183,15 +183,24 @@ export async function abrirModalPagamento(idAgendamento, notificacaoId = null) {
     const avisoDuplicado = document.getElementById('pagamento-aviso-duplicado');
     const avisoDuplicadoTexto = document.getElementById('pagamento-aviso-duplicado-texto');
     const btnSubmit = document.getElementById('btn-confirmar-pagamento-submit');
+    const modalPagamentoContent = modal.querySelector('.pagamento-modal');
+    const checkVerificacao = document.getElementById('pagamento-verificacao-confirmada');
+
     if (avisoDuplicado) avisoDuplicado.style.display = pagamentoAdicionalConfirmado ? 'flex' : 'none';
     if (avisoDuplicadoTexto && pagamentoAdicionalConfirmado) {
         avisoDuplicadoTexto.textContent = 'Você está registrando um pagamento ADICIONAL para uma consulta que já constava como paga. Confira o valor com atenção antes de salvar.';
     }
+    if (modalPagamentoContent) modalPagamentoContent.classList.toggle('pagamento-modo-adicional', pagamentoAdicionalConfirmado);
     if (btnSubmit) {
         btnSubmit.innerHTML = pagamentoAdicionalConfirmado
             ? '<i class="fa-solid fa-triangle-exclamation"></i> Confirmar Pagamento Adicional'
             : '<i class="fa-solid fa-check"></i> Confirmar Pagamento';
+        // Toda vez que o modal reabre, a verificação final volta a ficar
+        // desmarcada e o botão desabilitado - obriga conferir de novo em
+        // cada confirmação, mesmo que a pessoa já tenha usado o modal antes.
+        btnSubmit.disabled = true;
     }
+    if (checkVerificacao) checkVerificacao.checked = false;
 
     const valorBase = Number((agendamento.valorAtendimento ?? 0));
     const inputValor = document.getElementById('pagamento-valor');
@@ -549,6 +558,17 @@ export function initAgenda() {
     document.getElementById('btn-close-confirmar-agendamento').addEventListener('click', fecharModaisDeStatus);
     document.getElementById('btn-close-cancelar-agendamento').addEventListener('click', fecharModaisDeStatus);
 
+    // Trava de verificação final do pagamento: o botão de confirmar só liga
+    // quando a pessoa marca que conferiu valor/forma (ver abrirModalPagamento,
+    // que sempre reseta esse checkbox ao reabrir o modal).
+    const checkVerificacaoPagamento = document.getElementById('pagamento-verificacao-confirmada');
+    if (checkVerificacaoPagamento) {
+        checkVerificacaoPagamento.addEventListener('change', (e) => {
+            const btnSubmit = document.getElementById('btn-confirmar-pagamento-submit');
+            if (btnSubmit) btnSubmit.disabled = !e.target.checked;
+        });
+    }
+
     document.getElementById('form-confirmar-agendamento').addEventListener('submit', async (e) => {
         e.preventDefault();
         if (!agendamentoIdParaAtualizar) return;
@@ -573,6 +593,12 @@ export function initAgenda() {
 
         if (!valorPago || valorPago <= 0) {
             showToast('Informe um valor válido para o pagamento.', 'error');
+            return;
+        }
+
+        const checkVerificacao = document.getElementById('pagamento-verificacao-confirmada');
+        if (checkVerificacao && !checkVerificacao.checked) {
+            showToast('Confirme que conferiu o valor e a forma de pagamento antes de salvar.', 'error');
             return;
         }
 
@@ -844,7 +870,17 @@ export function initAgenda() {
             try {
                 const agendamentoAtual = clinicaState.agenda.agendamentos.find(a => String(a.id) === String(idAgendamento));
                 const valorConsulta = Number(agendamentoAtual?.valorAtendimento || 0);
-                const proximoStatusPagamento = novoStatus === 'concluido' && valorConsulta > 0
+                const jaEstaPagaAntesDaTroca = agendamentoAtual?.statusPagamento === 'pago';
+
+                // Só força pendência (e, mais abaixo, reabre a tela de cobrança)
+                // se a consulta AINDA não tiver pagamento registrado. Sem esse
+                // check, marcar como "Concluído" uma consulta que já estava
+                // paga voltava o statusPagamento pra "pendente" e reabria o
+                // modal de pagamento sem nenhum aviso de duplicidade - essa
+                // era a brecha que permitia lançar o mesmo pagamento 2x no
+                // caixa (o mesmo cuidado já existe no branch de "Confirmado",
+                // mais abaixo).
+                const proximoStatusPagamento = novoStatus === 'concluido' && valorConsulta > 0 && !jaEstaPagaAntesDaTroca
                     ? 'pendente'
                     : agendamentoAtual?.statusPagamento || 'nao_aplica';
 
@@ -863,7 +899,7 @@ export function initAgenda() {
                     };
                 }
 
-                if (novoStatus === 'concluido') {
+                if (novoStatus === 'concluido' && !jaEstaPagaAntesDaTroca) {
                     const agendamentoConcluido = clinicaState.agenda.agendamentos.find(a => String(a.id) === String(idAgendamento));
                     if (agendamentoConcluido && Number(agendamentoConcluido.valorAtendimento || 0) > 0) {
                         modalDetalhe.classList.remove('active');

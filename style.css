@@ -1266,6 +1266,126 @@ select.input-premium { cursor: pointer; }
     flex-shrink: 0;
 }
 
+/* ---------- MODAL DE PAGAMENTO: redesign "cofre" (mais seguro/profissional) ---------- */
+.pagamento-modal-header {
+    background: linear-gradient(135deg, var(--primary-color), var(--primary-light));
+    align-items: center;
+}
+.pagamento-modal-header h2 { color: #fff; font-size: 1.05rem; margin: 0; }
+.pagamento-modal-header .btn-close-modal { color: rgba(255,255,255,0.85); }
+.pagamento-modal-header .btn-close-modal:hover { color: #fff; }
+
+.pagamento-modal-titulo { display: flex; align-items: center; gap: 12px; }
+.pagamento-modal-subtitulo { color: rgba(255,255,255,0.85); font-size: 0.78rem; margin: 2px 0 0; }
+
+.pagamento-selo-seguranca {
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.18);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+}
+
+.pagamento-resumo-consulta {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+.pagamento-resumo-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+.pagamento-resumo-item i {
+    color: var(--primary-light);
+    margin-top: 3px;
+    width: 16px;
+    text-align: center;
+}
+.pagamento-resumo-item > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pagamento-resumo-item .rotulo { color: var(--text-light); font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; }
+.pagamento-resumo-item .valor { color: var(--text-main); font-weight: 600; font-size: 0.9rem; overflow-wrap: anywhere; }
+
+.pagamento-valor-destaque {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border: 2px solid var(--primary-light);
+    border-radius: var(--radius-md);
+    background: #fbfbfc;
+    padding: 6px 14px;
+}
+.pagamento-valor-destaque:focus-within {
+    box-shadow: 0 0 0 3px rgba(50, 130, 184, 0.2);
+}
+.pagamento-valor-prefixo { color: var(--text-light); font-weight: 700; }
+.pagamento-valor-destaque input {
+    border: none;
+    background: transparent;
+    outline: none;
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--primary-color);
+    width: 100%;
+    padding: 6px 0;
+}
+
+.pagamento-checklist {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: var(--bg-color);
+    border-radius: var(--radius-md);
+    padding: 10px 14px;
+}
+.pagamento-checklist .checkbox-label i { color: var(--text-light); width: 16px; }
+
+.pagamento-verificacao-final {
+    background: #eef7ee;
+    border: 1px solid #bfe3bf;
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+    font-weight: 600;
+    color: #1e5c1e;
+}
+.pagamento-verificacao-final i { color: #2e7d32; }
+
+.pagamento-modal-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+}
+.pagamento-registro-nota {
+    font-size: 0.75rem;
+    color: var(--text-light);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.pagamento-modal-footer .btn-primary {
+    width: 100%;
+    justify-content: center;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.pagamento-modal-footer .btn-primary:disabled {
+    background-color: var(--text-light);
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+    opacity: 0.6;
+}
+
+/* Quando é pagamento adicional (consulta já paga), o header vira vermelho -
+   diferencia visualmente esse caso raro do fluxo normal de confirmação. */
+.pagamento-modal.pagamento-modo-adicional .pagamento-modal-header {
+    background: linear-gradient(135deg, #b02a37, #dc3545);
+}
+.pagamento-modal.pagamento-modo-adicional .pagamento-selo-seguranca i::before { content: "\f071"; } /* triangle-exclamation */
+
 .appointment-slot.blocked {
     background: repeating-linear-gradient(45deg, #f1f3f5, #f1f3f5 8px, #e9ecef 8px, #e9ecef 16px);
     border-left: 4px solid #adb5bd;
@@ -1538,6 +1658,67 @@ summary.timeline-meta:hover {
 }
 .pep-badge.link { background: var(--primary-light); color: white; text-decoration: none; cursor: pointer; }
 
+/* Galeria de Exames/Imagens anexadas ao prontuário */
+.pep-imagens-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 14px;
+}
+.pep-imagem-card {
+    position: relative;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+.pep-imagem-card img {
+    width: 100%;
+    height: 130px;
+    object-fit: cover;
+    display: block;
+    background: #f1f5f9;
+}
+.pep-imagem-arquivo-icone {
+    width: 100%;
+    height: 130px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f1f5f9;
+    color: #dc3545;
+    font-size: 2.4rem;
+}
+.pep-imagem-info {
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.pep-imagem-info strong {
+    font-size: 0.8rem;
+    word-break: break-word;
+}
+.pep-imagem-descricao {
+    font-size: 0.78rem;
+    color: var(--text-color);
+}
+.pep-imagem-info small {
+    color: var(--text-light);
+    font-size: 0.72rem;
+}
+.pep-imagem-card .btn-excluir-imagem-exame {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: rgba(220, 53, 69, 0.9);
+    color: #fff;
+    border-radius: 6px;
+    width: 26px;
+    height: 26px;
+}
+
 /* Melhorando as caixas de digitação e histórico */
 .pep-nova-evolucao, .pep-historico {
     background: #ffffff;
@@ -1723,6 +1904,156 @@ summary.timeline-meta:hover {
     .professional-column {
         min-width: 100%;
     }
+
+    /* Painel do Dashboard e gráficos financeiros: a largura mínima por
+       coluna (300px/380px) é maior que a tela de qualquer celular, então
+       força 1 coluna só em vez de estourar a largura da página */
+    .dashboard-grid,
+    .charts-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* Calendário mensal (visão Mês da Agenda): compacta as células pra
+       caber 7 colunas numa tela estreita sem virar ilegível */
+    .month-day-cell {
+        min-height: 64px;
+        padding: 4px;
+        gap: 2px;
+    }
+
+    .month-day-num {
+        width: 20px;
+        height: 20px;
+        font-size: 0.72rem;
+    }
+
+    .month-appt-dot {
+        font-size: 0.62rem;
+        padding: 1px 4px;
+    }
+
+    .month-weekday-row span {
+        font-size: 0.65rem;
+        padding: 6px 2px;
+    }
+
+    /* Evita zoom automático do Safari/iOS ao tocar em campos com fonte
+       menor que 16px - comportamento padrão do navegador, não bug do
+       sistema, mas quebra a sensação profissional se não for tratado */
+    .select-compact,
+    .input-compact,
+    .select-status-agenda {
+        font-size: 16px;
+    }
+
+    /* Área de toque maior pra botões de ícone (editar/excluir/+/-) -
+       dimensionados originalmente pra clique de mouse, não pra dedo */
+    .row-actions .btn-action,
+    .qty-btn {
+        min-width: 40px;
+        min-height: 40px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 8px;
+    }
+
+    .btn-close-modal {
+        min-width: 40px;
+        min-height: 40px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Rede de segurança: impede que qualquer componente que escape do
+       cálculo de largura (ex: algo esquecido sem overflow tratado) empurre
+       a página inteira pros lados, o que pareceria bug grave num celular */
+    body {
+        overflow-x: hidden;
+    }
+}
+
+/* =========================================================
+   9.1 TELAS MUITO PEQUENAS (celulares compactos, ex: iPhone SE,
+   Android de entrada) - ajustes extras de escala em cima do que
+   já foi definido no breakpoint de 768px acima
+   ========================================================= */
+@media (max-width: 480px) {
+    .content-sections {
+        padding: 16px 12px 26px;
+    }
+
+    .top-bar h1 {
+        font-size: 1.25rem;
+    }
+
+    .top-bar {
+        padding: 16px 14px;
+    }
+
+    .big-number {
+        font-size: 1.5rem;
+    }
+
+    .hub-icon {
+        font-size: 2.6rem;
+        margin-bottom: 10px;
+    }
+
+    .card-action {
+        padding: 20px 14px !important;
+    }
+
+    .login-brand h2 {
+        font-size: 1.7rem;
+    }
+
+    .login-form-area {
+        padding: 24px 16px;
+    }
+
+    .modal-header {
+        padding: 14px 16px;
+    }
+
+    .modal-body {
+        padding: 14px;
+    }
+
+    .data-table th,
+    .data-table td {
+        padding: 10px 12px;
+        font-size: 0.85rem;
+    }
+
+    .pep-tabs .tab-btn,
+    .tab-btn {
+        padding: 10px 14px;
+        font-size: 0.9rem;
+    }
+
+    .month-day-cell {
+        min-height: 52px;
+    }
+
+    /* Botões de formulário empilhados e em largura cheia - mais fácil de
+       tocar do que dois botões pequenos lado a lado numa tela estreita */
+    .form-actions {
+        flex-direction: column-reverse;
+        align-items: stretch;
+    }
+
+    .form-actions .btn-primary,
+    .form-actions .btn-secondary {
+        width: 100%;
+        text-align: center;
+    }
+
+    .pep-imagens-grid {
+        grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+        gap: 10px;
+    }
 }
 
 /* =========================================================
@@ -1901,6 +2232,15 @@ summary.timeline-meta:hover {
     margin-bottom: 25px;
     border-bottom: 2px solid var(--border-color);
     padding-bottom: 10px;
+    /* Com 5 abas (Evolução/Histórico/Exames/Imagens/Receituário), a barra
+       não cabe em telas estreitas - em vez de quebrar linha (o que ficaria
+       desalinhado com a borda inferior), ela vira uma faixa rolável
+       horizontalmente, padrão comum em apps profissionais mobile */
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
 }
 
 .tab-btn {
@@ -1916,6 +2256,8 @@ summary.timeline-meta:hover {
     display: flex;
     align-items: center;
     gap: 8px;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .tab-btn:hover { background: #f1f5f9; }

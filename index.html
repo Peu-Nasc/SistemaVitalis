@@ -353,6 +353,7 @@
                                 <button class="tab-btn active" data-tab="tab-evolucao"><i class="fa-solid fa-notes-medical"></i> Nova Evolução</button>
                                 <button class="tab-btn" data-tab="tab-historico"><i class="fa-solid fa-clock-rotate-left"></i> Histórico Clínico</button>
                                 <button class="tab-btn" data-tab="tab-exames" id="tab-btn-exames"><i class="fa-solid fa-flask-vial"></i> Exames Solicitados</button>
+                                <button class="tab-btn" data-tab="tab-imagens" id="tab-btn-imagens"><i class="fa-solid fa-file-medical"></i> Exames / Imagens</button>
                                 <button class="tab-btn" data-tab="tab-receita"><i class="fa-solid fa-file-prescription"></i> Receituário (Imprimir)</button>
                             </div>
 
@@ -405,6 +406,33 @@
                                 <div class="pep-historico mt-20">
                                     <h4>Exames Já Solicitados</h4>
                                     <div class="dash-list" id="pep-exames-timeline"></div>
+                                </div>
+                            </div>
+
+                            <!-- ABA: EXAMES / IMAGENS ANEXADAS -->
+                            <!-- Diferente da aba "Exames Solicitados" (que só registra o
+                                 PEDIDO do exame): aqui entra o RESULTADO já realizado -
+                                 laudo em PDF, foto de raio-X, exame de imagem, etc. -->
+                            <div id="tab-imagens" class="tab-content">
+                                <div class="pep-nova-evolucao">
+                                    <h4>Anexar Exame / Imagem</h4>
+                                    <form id="form-imagens-exame" class="form-grid">
+                                        <div class="form-group full-width">
+                                            <label>Arquivo(s) - foto, exame de imagem ou PDF *</label>
+                                            <input type="file" id="pep-imagem-arquivo" accept="image/*,.pdf" multiple required>
+                                        </div>
+                                        <div class="form-group full-width">
+                                            <label>Descrição (opcional)</label>
+                                            <input type="text" id="pep-imagem-descricao" class="input-premium" placeholder="Ex: Raio-X de tórax - suspeita de fratura">
+                                        </div>
+                                        <div class="form-actions full-width">
+                                            <button type="submit" class="btn-primary"><i class="fa-solid fa-upload"></i> Enviar ao Prontuário</button>
+                                        </div>
+                                    </form>
+                                </div>
+                                <div class="pep-historico mt-20">
+                                    <h4>Exames e Imagens Anexadas</h4>
+                                    <div class="pep-imagens-grid" id="pep-imagens-grid"></div>
                                 </div>
                             </div>
 
@@ -1345,19 +1373,25 @@
 
     <!-- ================== MODAL DE CONFIRMAÇÃO DE CONSULTA (status: Confirmado) ================== -->
     <div id="modal-confirmar-agendamento" class="modal-overlay">
-        <div class="modal-content modal-sm">
-            <header class="modal-header">
-                <h2>Confirmar Consulta</h2>
+        <div class="modal-content modal-sm pagamento-modal">
+            <header class="modal-header pagamento-modal-header">
+                <div class="pagamento-modal-titulo">
+                    <span class="pagamento-selo-seguranca"><i class="fa-solid fa-shield-halved"></i></span>
+                    <div>
+                        <h2>Confirmação de Pagamento</h2>
+                        <p class="pagamento-modal-subtitulo">Confira os dados antes de lançar no caixa</p>
+                    </div>
+                </div>
                 <button class="btn-close-modal" id="btn-close-confirmar-agendamento" type="button"><i class="fa-solid fa-xmark"></i></button>
             </header>
             <div class="modal-body">
                 <!-- Resumo somente-leitura: quem está confirmando vê exatamente
                      o que está sendo cobrado antes de mexer em valor/forma. -->
                 <div class="pagamento-resumo-consulta" id="pagamento-resumo-consulta">
-                    <div class="detalhe-info-row"><span class="rotulo">Paciente</span><span class="valor" id="pagamento-resumo-paciente">-</span></div>
-                    <div class="detalhe-info-row"><span class="rotulo">Atendimento</span><span class="valor" id="pagamento-resumo-atendimento">-</span></div>
-                    <div class="detalhe-info-row"><span class="rotulo">Profissional</span><span class="valor" id="pagamento-resumo-profissional">-</span></div>
-                    <div class="detalhe-info-row"><span class="rotulo">Data / Horário</span><span class="valor" id="pagamento-resumo-data">-</span></div>
+                    <div class="pagamento-resumo-item"><i class="fa-solid fa-user"></i><div><span class="rotulo">Paciente</span><span class="valor" id="pagamento-resumo-paciente">-</span></div></div>
+                    <div class="pagamento-resumo-item"><i class="fa-solid fa-stethoscope"></i><div><span class="rotulo">Atendimento</span><span class="valor" id="pagamento-resumo-atendimento">-</span></div></div>
+                    <div class="pagamento-resumo-item"><i class="fa-solid fa-user-doctor"></i><div><span class="rotulo">Profissional</span><span class="valor" id="pagamento-resumo-profissional">-</span></div></div>
+                    <div class="pagamento-resumo-item"><i class="fa-regular fa-calendar"></i><div><span class="rotulo">Data / Horário</span><span class="valor" id="pagamento-resumo-data">-</span></div></div>
                 </div>
 
                 <!-- Só aparece quando a consulta já tinha pagamento registrado e a
@@ -1369,12 +1403,6 @@
                 </div>
 
                 <form id="form-confirmar-agendamento" class="form-grid">
-                    <div class="form-group full-width">
-                        <label class="checkbox-label"><input type="checkbox" id="confirmacao-whatsapp"> Confirmação enviada via WhatsApp</label>
-                    </div>
-                    <div class="form-group full-width">
-                        <label class="checkbox-label"><input type="checkbox" id="confirmacao-chegou"> Paciente já chegou à clínica</label>
-                    </div>
                     <div class="form-group full-width">
                         <label>Forma de pagamento *</label>
                         <select id="pagamento-forma" class="input-premium" required>
@@ -1388,13 +1416,37 @@
                     </div>
                     <div class="form-group full-width">
                         <label>Valor recebido *</label>
-                        <input type="text" id="pagamento-valor" class="input-premium" required placeholder="0,00">
+                        <div class="pagamento-valor-destaque">
+                            <span class="pagamento-valor-prefixo">R$</span>
+                            <input type="text" id="pagamento-valor" required placeholder="0,00">
+                        </div>
                     </div>
+
+                    <div class="form-group full-width pagamento-checklist">
+                        <label class="checkbox-label"><input type="checkbox" id="confirmacao-whatsapp"> <i class="fa-brands fa-whatsapp"></i> Confirmação enviada via WhatsApp</label>
+                        <label class="checkbox-label"><input type="checkbox" id="confirmacao-chegou"> <i class="fa-solid fa-door-open"></i> Paciente já chegou à clínica</label>
+                    </div>
+
                     <div class="form-group full-width">
                         <label>Outras observações (opcional)</label>
                         <textarea id="confirmacao-observacoes" class="textarea-form" rows="2"></textarea>
                     </div>
-                    <div class="form-actions full-width"><button type="submit" class="btn-primary" id="btn-confirmar-pagamento-submit"><i class="fa-solid fa-check"></i> Confirmar Pagamento</button></div>
+
+                    <!-- Trava de verificação final: obriga um clique consciente
+                         conferindo valor e forma antes de liberar o botão de
+                         lançar no caixa - reduz confirmação por reflexo/pressa,
+                         que era o gatilho mais comum de lançamento duplicado. -->
+                    <div class="form-group full-width">
+                        <label class="checkbox-label pagamento-verificacao-final">
+                            <input type="checkbox" id="pagamento-verificacao-confirmada">
+                            <i class="fa-solid fa-circle-check"></i> Conferi o valor e a forma de pagamento acima
+                        </label>
+                    </div>
+
+                    <div class="form-actions full-width pagamento-modal-footer">
+                        <span class="pagamento-registro-nota"><i class="fa-solid fa-lock"></i> Registrado com seu nome, data e hora na Auditoria</span>
+                        <button type="submit" class="btn-primary" id="btn-confirmar-pagamento-submit" disabled><i class="fa-solid fa-check"></i> Confirmar Pagamento</button>
+                    </div>
                 </form>
             </div>
         </div>

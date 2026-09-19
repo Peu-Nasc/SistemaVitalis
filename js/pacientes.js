@@ -452,6 +452,119 @@ export function initPacientes() {
     }
 
     // ==========================================
+    // EXAMES / IMAGENS ANEXADAS AO PRONTUÁRIO
+    // Diferente da aba "Exames Solicitados" (que só registra o PEDIDO do
+    // exame): aqui entra o RESULTADO já realizado - laudo em PDF, foto de
+    // raio-X, exame de imagem etc. O arquivo em si vai pro Storage (mesmo
+    // padrão dos anexos de cadastro, sem criptografia); só a descrição
+    // (dado clínico em texto livre) é criptografada como o restante do
+    // histórico.
+    // ==========================================
+    const formImagensExame = document.getElementById('form-imagens-exame');
+    if (formImagensExame) {
+        formImagensExame.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!pacienteAtivoId) return;
+
+            const paciente = clinicaState.pacientes.find(p => String(p.id) === String(pacienteAtivoId));
+            const inputArquivo = document.getElementById('pep-imagem-arquivo');
+            const inputDescricao = document.getElementById('pep-imagem-descricao');
+            const btnSalvar = e.target.querySelector('button[type="submit"]');
+
+            if (!inputArquivo.files || inputArquivo.files.length === 0) {
+                showToast('Selecione ao menos um arquivo.', 'warning');
+                return;
+            }
+
+            const profId = document.getElementById('pep-profissional').value;
+            const profissional = clinicaState.profissionais.find(p => String(p.id) === String(profId));
+            if (!profissional) {
+                showToast('Selecione o profissional responsável na aba "Nova Evolução" antes de anexar exames.', 'warning');
+                return;
+            }
+
+            await comEstadoDeCarregamento(btnSalvar, 'Enviando...', async () => {
+                const descricao = inputDescricao.value.trim();
+                const novosItens = [];
+
+                // Envia todos os arquivos ANTES de gravar no Firestore - se algum
+                // upload falhar, nada é salvo pela metade (mesmo padrão do
+                // cadastro de paciente).
+                try {
+                    for (const arquivo of inputArquivo.files) {
+                        const url = await uploadAnexo(arquivo, `prontuario/${paciente.id}`);
+                        novosItens.push({
+                            url,
+                            nomeArquivo: arquivo.name,
+                            tipo: arquivo.type || '',
+                            descricaoCripto: encriptar(descricao),
+                            data: new Date().toLocaleString('pt-BR'),
+                            profissional: profissional.nome
+                        });
+                    }
+                } catch (uploadError) {
+                    console.error("Erro ao enviar exame/imagem: ", uploadError);
+                    showToast('Falha ao enviar o(s) arquivo(s). Nada foi salvo no prontuário.', 'error');
+                    return;
+                }
+
+                if (!paciente.imagensExames) paciente.imagensExames = [];
+                paciente.imagensExames.push(...novosItens);
+
+                try {
+                    await updateDoc(doc(db, "pacientes", paciente.id), { imagensExames: paciente.imagensExames });
+
+                    renderizarImagensExames(paciente);
+                    e.target.reset();
+                    showToast('Exame(s)/imagem(ns) anexado(s) ao prontuário com sucesso!', 'success');
+                    await registrarAuditoria({ acao: 'Criação', modulo: 'Prontuário', descricao: `Exame/imagem anexado para ${paciente.nome} (${novosItens.length} arquivo(s))` });
+                } catch (error) {
+                    console.error("Erro ao salvar exame/imagem no prontuário: ", error);
+                    showToast('Erro de conexão ao salvar no prontuário.', 'error');
+                    paciente.imagensExames.splice(paciente.imagensExames.length - novosItens.length, novosItens.length);
+                }
+            });
+        });
+    }
+
+    // Exclusão de um exame/imagem já anexado - delegação de clique no grid
+    const gridImagensExames = document.getElementById('pep-imagens-grid');
+    if (gridImagensExames) {
+        gridImagensExames.addEventListener('click', async (e) => {
+            const btnExcluir = e.target.closest('.btn-excluir-imagem-exame');
+            if (!btnExcluir || !pacienteAtivoId) return;
+
+            const idx = parseInt(btnExcluir.getAttribute('data-idx'));
+            const paciente = clinicaState.pacientes.find(p => String(p.id) === String(pacienteAtivoId));
+            if (!paciente || !paciente.imagensExames || !paciente.imagensExames[idx]) return;
+
+            if (await confirmarAcao('Deseja realmente excluir este exame/imagem do prontuário?', { titulo: 'Excluir anexo', textoConfirmar: 'Excluir' })) {
+                const item = paciente.imagensExames[idx];
+                const copiaAnterior = [...paciente.imagensExames];
+                paciente.imagensExames.splice(idx, 1);
+
+                try {
+                    await updateDoc(doc(db, "pacientes", paciente.id), { imagensExames: paciente.imagensExames });
+
+                    try {
+                        await deleteObject(ref(storage, item.url));
+                    } catch (removeError) {
+                        console.error("Erro ao remover arquivo do Storage: ", removeError);
+                    }
+
+                    renderizarImagensExames(paciente);
+                    showToast('Anexo removido do prontuário.', 'success');
+                    await registrarAuditoria({ acao: 'Exclusão', modulo: 'Prontuário', descricao: `Exame/imagem removido de ${paciente.nome}: ${item.nomeArquivo}` });
+                } catch (error) {
+                    console.error("Erro ao excluir exame/imagem: ", error);
+                    showToast('Erro de conexão ao excluir.', 'error');
+                    paciente.imagensExames = copiaAnterior;
+                }
+            }
+        });
+    }
+
+    // ==========================================
     // DELEGAÇÃO DE EVENTOS DAS TABELAS
     // ==========================================
     const patientListBody = document.getElementById('patient-table-body-list');
@@ -750,6 +863,7 @@ export function abrirProntuario(idPaciente) {
         
         renderizarEvolucoes(paciente);
         renderizarExamesSolicitados(paciente);
+        renderizarImagensExames(paciente);
         renderizarResumoPacienteAtivo();
 
         // Reseta o gerador de documentos ao trocar de paciente, para não
@@ -758,6 +872,11 @@ export function abrirProntuario(idPaciente) {
         if (grupoEspecialidade) grupoEspecialidade.style.display = 'none';
         const textoReceita = document.getElementById('texto-receita');
         if (textoReceita) textoReceita.value = '';
+
+        // Reseta o formulário de anexo de exame/imagem ao trocar de paciente,
+        // pra não arrastar arquivo/descrição selecionados para outra pessoa
+        const formImagensExameReset = document.getElementById('form-imagens-exame');
+        if (formImagensExameReset) formImagensExameReset.reset();
         
         const areaHistorico = document.querySelector('.pep-historico'); 
         const formEvolucao = document.querySelector('.pep-nova-evolucao'); 
@@ -767,15 +886,18 @@ export function abrirProntuario(idPaciente) {
         // porque essas classes já se repetem em outros blocos da tela e
         // querySelector só pegaria o primeiro elemento.
         const tabBtnExames = document.getElementById('tab-btn-exames');
+        const tabBtnImagens = document.getElementById('tab-btn-imagens');
         
         if (clinicaState.sessao.perfil !== 'Doutor(a)') {
             if(areaHistorico) areaHistorico.style.display = 'none';
             if(formEvolucao) formEvolucao.style.display = 'none';
             if(tabBtnExames) tabBtnExames.style.display = 'none';
+            if(tabBtnImagens) tabBtnImagens.style.display = 'none';
         } else {
             if(areaHistorico) areaHistorico.style.display = 'block';
             if(formEvolucao) formEvolucao.style.display = 'block';
             if(tabBtnExames) tabBtnExames.style.display = '';
+            if(tabBtnImagens) tabBtnImagens.style.display = '';
         }
 
         const listaContainer = document.getElementById('lista-pacientes-container');
@@ -824,6 +946,36 @@ function renderizarExamesSolicitados(paciente) {
             </div>
         </div>`;
     }).join('') || '<p style="color: var(--text-light); text-align: center; padding: 20px;">Nenhum exame solicitado ainda.</p>';
+}
+
+// Galeria de exames/imagens anexadas ao prontuário - miniatura pra imagem,
+// ícone de PDF pra documentos, com a descrição (criptografada) legível.
+function renderizarImagensExames(paciente) {
+    const container = document.getElementById('pep-imagens-grid');
+    if (!container) return;
+
+    const lista = paciente.imagensExames || [];
+
+    container.innerHTML = lista.map((item, idx) => {
+        const ehImagem = (item.tipo || '').startsWith('image/');
+        const descricao = item.descricaoCripto ? decriptar(item.descricaoCripto) : '';
+        const preview = ehImagem
+            ? `<a href="${item.url}" target="_blank" rel="noopener"><img src="${item.url}" alt="${escapeHTML(item.nomeArquivo)}"></a>`
+            : `<a href="${item.url}" target="_blank" rel="noopener" class="pep-imagem-arquivo-icone"><i class="fa-solid fa-file-pdf"></i></a>`;
+
+        return `
+        <div class="pep-imagem-card">
+            ${preview}
+            <div class="pep-imagem-info">
+                <strong title="${escapeHTML(item.nomeArquivo)}">${escapeHTML(item.nomeArquivo)}</strong>
+                ${descricao ? `<span class="pep-imagem-descricao">${escapeHTML(descricao)}</span>` : ''}
+                <small>${escapeHTML(item.profissional)} · ${escapeHTML(item.data)}</small>
+            </div>
+            <button type="button" class="btn-action btn-delete btn-excluir-imagem-exame" data-idx="${idx}" title="Excluir anexo">
+                <i class="fa-solid fa-trash"></i>
+            </button>
+        </div>`;
+    }).join('') || '<p style="color: var(--text-light); text-align: center; padding: 20px;">Nenhum exame ou imagem anexada ainda.</p>';
 }
 
 export function renderizarResumoPacienteAtivo() {

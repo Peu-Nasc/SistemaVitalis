@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VITALIS — Sistema de gestão para clínicas</title>
+<meta name="description" content="Agenda com controle de salas, prontuário eletrônico, financeiro com DRE e estoque com alerta de validade — tudo num sistema só, com suporte direto de quem o desenvolveu.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============ NAVEGAÇÃO ============ -->
+<header class="nav">
+    <div class="nav-inner">
+        <a href="#topo" class="logo">
+            <svg class="logo-mark" viewBox="0 0 60 24" width="34" height="14" aria-hidden="true">
+                <polyline points="0,12 14,12 19,3 25,21 31,12 60,12" />
+            </svg>
+            VITALIS
+        </a>
+        <nav class="nav-links">
+            <a href="#modulos">Recursos</a>
+            <a href="#preco">Preço</a>
+        </nav>
+        <a href="https://teste.sistemavitalis.com.br" class="btn btn-primary btn-nav">Testar grátis</a>
+    </div>
+</header>
+
+<main id="topo">
+
+<!-- ============ HERO ============ -->
+<section class="hero">
+    <div class="hero-inner">
+        <div class="hero-copy">
+            <h1>A clínica não para.<br>O sistema também não.</h1>
+            <p class="hero-sub">Agenda com controle de salas, prontuário eletrônico, financeiro com DRE
+            e estoque com alerta de validade — tudo dentro de um sistema só, com o desenvolvedor
+            do outro lado da linha quando você precisar.</p>
+            <div class="hero-actions">
+                <a href="https://teste.sistemavitalis.com.br" class="btn btn-primary">Testar grátis por 14 dias</a>
+                <a href="https://wa.me/5575981701297" class="link-whatsapp"><i class="fa-brands fa-whatsapp"></i> Falar com o desenvolvedor</a>
+            </div>
+        </div>
+
+        <div class="hero-visual" aria-hidden="true">
+            <div class="day-strip">
+                <div class="day-strip-label">Uma consulta, do início ao fim</div>
+                <ol class="day-step-list">
+                    <li class="day-step">
+                        <span class="day-time">08:40</span>
+                        <span class="day-dot"></span>
+                        <span class="day-text"><strong>Agendado</strong> — recepção marca o horário e a sala</span>
+                    </li>
+                    <li class="day-step">
+                        <span class="day-time">08:55</span>
+                        <span class="day-dot"></span>
+                        <span class="day-text"><strong>Confirmado</strong> — paciente chega, check-in na tela</span>
+                    </li>
+                    <li class="day-step">
+                        <span class="day-time">09:05</span>
+                        <span class="day-dot"></span>
+                        <span class="day-text"><strong>Atendimento</strong> — evolução e exame ficam no prontuário</span>
+                    </li>
+                    <li class="day-step is-final">
+                        <span class="day-time">09:30</span>
+                        <span class="day-dot"></span>
+                        <span class="day-text"><strong>Concluído</strong> — pagamento cai no caixa do dia</span>
+                    </li>
+                </ol>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ BARRA DE CONFIANÇA ============ -->
+<section class="trust">
+    <div class="trust-inner">
+        <div class="trust-item">
+            <span class="trust-num">14 dias</span>
+            <span class="trust-text">de teste grátis, sem cartão</span>
+        </div>
+        <div class="trust-item">
+            <span class="trust-num">Ponta a ponta</span>
+            <span class="trust-text">criptografia nos dados do paciente</span>
+        </div>
+        <div class="trust-item">
+            <span class="trust-num">Direto com você</span>
+            <span class="trust-text">suporte com quem programou o sistema, sem central de atendimento</span>
+        </div>
+    </div>
+</section>
+
+<!-- ============ O QUE MUDA ============ -->
+<section class="problems">
+    <div class="section-inner">
+        <h2>O que muda no dia a dia da clínica</h2>
+        <div class="problems-grid">
+            <div class="problem">
+                <p>A recepção lança o pagamento recebido sem enxergar o livro caixa inteiro — cada perfil vê só o que precisa.</p>
+            </div>
+            <div class="problem">
+                <p>O estoque avisa sozinho quando um lote está vencendo ou abaixo do mínimo, sem ninguém precisar conferir prateleira por prateleira.</p>
+            </div>
+            <div class="problem">
+                <p>O exame solicitado e o resultado do exame ficam guardados separados, do jeito que o médico realmente usa no prontuário.</p>
+            </div>
+            <div class="problem">
+                <p>Equipe multidisciplinar fecha o pacote da semana dentro do sistema, sem montar planilha por fora pra cada criança atendida.</p>
+            </div>
+            <div class="problem">
+                <p>Toda edição, exclusão e login fica registrado — quem fez, quando fez, o quê mudou.</p>
+            </div>
+            <div class="problem">
+                <p>O financeiro fecha o mês com DRE pronto e exporta pra Excel com fórmula, não uma planilha morta.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ MÓDULOS ============ -->
+<section class="modules" id="modulos">
+    <div class="section-inner">
+        <h2>Um sistema, seis frentes cobertas</h2>
+        <div class="modules-grid">
+            <article class="module module-lg">
+                <i class="fa-regular fa-calendar-days"></i>
+                <h3>Agenda</h3>
+                <p>Visão de dia, semana ou mês, com controle de sala física e status de cada consulta — agendado, confirmado, aguardando ou concluído.</p>
+            </article>
+            <article class="module module-lg">
+                <i class="fa-solid fa-notes-medical"></i>
+                <h3>Prontuário eletrônico</h3>
+                <p>Histórico clínico, exames solicitados, encaminhamento por especialidade e receituário pronto pra imprimir, tudo no cadastro do paciente.</p>
+            </article>
+            <article class="module module-md">
+                <i class="fa-solid fa-cash-register"></i>
+                <h3>Financeiro</h3>
+                <p>Livro caixa, custos fixos, repasse por profissional e DRE com exportação em Excel.</p>
+            </article>
+            <article class="module module-sm">
+                <i class="fa-solid fa-boxes-stacked"></i>
+                <h3>Estoque</h3>
+                <p>Controle por lote e validade, com alerta antes de vencer.</p>
+            </article>
+            <article class="module module-sm">
+                <i class="fa-solid fa-layer-group"></i>
+                <h3>Pacotes de atendimento</h3>
+                <p>Preço fechado pra atendimento em equipe, sem planilha à parte.</p>
+            </article>
+            <article class="module module-sm">
+                <i class="fa-solid fa-file-signature"></i>
+                <h3>Auditoria</h3>
+                <p>Trilha de cada ação, por usuário, data e hora.</p>
+            </article>
+        </div>
+    </div>
+</section>
+
+<!-- ============ EQUIPE MULTIDISCIPLINAR ============ -->
+<section class="highlight">
+    <div class="section-inner highlight-inner">
+        <p class="highlight-quote">"Se sua clínica atende com psicologia, terapia ocupacional e fisioterapia
+        num pacote fechado por semana — o sistema já foi pensado pra isso, não é um financeiro genérico
+        adaptado na marra."</p>
+        <p class="highlight-context">Pensado ao lado de clínicas que atendem crianças com TEA e TDAH em equipe multidisciplinar.</p>
+    </div>
+</section>
+
+<!-- ============ PREÇO ============ -->
+<section class="pricing" id="preco">
+    <div class="section-inner">
+        <h2>Um preço só, sem letra miúda</h2>
+        <div class="price-card">
+            <div class="price-main">
+                <span class="price-value">R$ 170</span>
+                <span class="price-period">/mês</span>
+            </div>
+            <p class="price-note">Infraestrutura completa incluída para até 6 credenciais de acesso. Cada credencial extra para funcionário fixo sai por <strong>R$ 19,30/mês</strong>.</p>
+            <ul class="price-list">
+                <li><i class="fa-solid fa-check"></i> Todos os módulos: Agenda, Prontuário, Financeiro, Estoque e Auditoria</li>
+                <li><i class="fa-solid fa-check"></i> Criptografia de ponta a ponta nos dados do paciente</li>
+                <li><i class="fa-solid fa-check"></i> Atendimento direto com o desenvolvedor</li>
+                <li><i class="fa-solid fa-check"></i> 14 dias de teste grátis, sem compromisso</li>
+            </ul>
+            <a href="https://teste.sistemavitalis.com.br" class="btn btn-primary btn-block">Começar teste grátis</a>
+        </div>
+    </div>
+</section>
+
+<!-- ============ CTA FINAL ============ -->
+<section class="final-cta">
+    <div class="section-inner final-cta-inner">
+        <h2>Sua clínica pode estar rodando nisso em 14 dias — sem custo pra testar.</h2>
+        <div class="hero-actions final-actions">
+            <a href="https://teste.sistemavitalis.com.br" class="btn btn-primary">Testar grátis agora</a>
+            <a href="https://wa.me/5575981701297" class="link-whatsapp light"><i class="fa-brands fa-whatsapp"></i> (75) 98170-1297</a>
+        </div>
+    </div>
+</section>
+
+</main>
+
+<!-- ============ RODAPÉ ============ -->
+<footer class="site-footer">
+    <div class="footer-inner">
+        <span id="footer-ano-atual-txt">© 2026 JS Ferreira</span>
+        <div class="footer-links">
+            <a href="https://www.jsferreira.com.br/" target="_blank" rel="noopener" title="Site oficial"><i class="fa-solid fa-globe"></i></a>
+            <a href="https://wa.me/5575981701297" target="_blank" rel="noopener" title="(75) 98170-1297"><i class="fa-brands fa-whatsapp"></i></a>
+            <a href="https://www.instagram.com/js.ferreira_mei/" target="_blank" rel="noopener" title="Instagram"><i class="fa-brands fa-instagram"></i></a>
+        </div>
+    </div>
+</footer>
+
+<script>
+    document.getElementById('footer-ano-atual-txt').textContent = '© ' + new Date().getFullYear() + ' JS Ferreira';
+</script>
+</body>
+</html>

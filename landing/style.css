@@ -1,0 +1,508 @@
+/* =========================================================
+   VITALIS — página de vendas
+   Paleta estendida a partir da identidade do sistema (azul
+   corporativo profundo #0F4C75 + verde de destaque #17A673),
+   com um tom de tinta mais escuro pra seção de destaque e um
+   neutro frio (não creme) pras superfícies claras.
+   ========================================================= */
+:root {
+    --navy-deep: #0B3652;
+    --navy: #0F4C75;
+    --sky: #3282B8;
+    --mist: #EAF1F6;
+    --ink: #10202B;
+    --mint: #17A673;
+    --text-body: #3C4A54;
+    --text-soft: #6C7C87;
+    --white: #FFFFFF;
+
+    --font-display: 'Sora', 'Segoe UI', sans-serif;
+    --font-body: 'Inter', 'Segoe UI', sans-serif;
+
+    --radius: 14px;
+    --container: 1120px;
+}
+
+* { box-sizing: border-box; }
+
+html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 90px;
+}
+
+body {
+    margin: 0;
+    font-family: var(--font-body);
+    color: var(--text-body);
+    background: var(--white);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 {
+    font-family: var(--font-display);
+    color: var(--ink);
+    margin: 0;
+    line-height: 1.15;
+}
+
+p { margin: 0; }
+
+a { color: inherit; text-decoration: none; }
+
+.section-inner {
+    max-width: var(--container);
+    margin: 0 auto;
+    padding: 88px 24px;
+}
+
+/* ---------- BOTÕES ---------- */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 14px 28px;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 1rem;
+    white-space: nowrap;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btn-primary {
+    background: var(--mint);
+    color: var(--white);
+    box-shadow: 0 8px 20px -6px rgba(23, 166, 115, 0.45);
+}
+
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 12px 24px -6px rgba(23, 166, 115, 0.5); }
+
+.btn-block { width: 100%; }
+
+.link-whatsapp {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    color: var(--navy);
+    padding: 14px 6px;
+}
+
+.link-whatsapp.light { color: var(--white); }
+.link-whatsapp i { color: var(--mint); font-size: 1.1rem; }
+
+/* ---------- NAV ---------- */
+.nav {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid #E5EDF2;
+}
+
+.nav-inner {
+    max-width: var(--container);
+    margin: 0 auto;
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 1.25rem;
+    color: var(--navy-deep);
+    flex-shrink: 0;
+}
+
+.logo-mark polyline {
+    fill: none;
+    stroke: var(--mint);
+    stroke-width: 2.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.nav-links {
+    display: flex;
+    gap: 28px;
+    font-weight: 500;
+    color: var(--text-body);
+}
+
+.nav-links a:hover { color: var(--navy); }
+
+.btn-nav { padding: 10px 20px; font-size: 0.92rem; }
+
+/* ---------- HERO ---------- */
+.hero {
+    background: linear-gradient(180deg, var(--navy-deep) 0%, var(--navy) 100%);
+    color: var(--white);
+    overflow: hidden;
+}
+
+.hero-inner {
+    max-width: var(--container);
+    margin: 0 auto;
+    padding: 76px 24px 88px;
+    display: grid;
+    grid-template-columns: 1.1fr 0.9fr;
+    gap: 56px;
+    align-items: center;
+}
+
+.hero h1 {
+    color: var(--white);
+    font-size: clamp(2rem, 4.2vw, 3.1rem);
+    letter-spacing: -0.01em;
+}
+
+.hero-sub {
+    margin-top: 22px;
+    max-width: 46ch;
+    font-size: 1.08rem;
+    color: #CFE0EC;
+}
+
+.hero-actions {
+    margin-top: 34px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 24px;
+}
+
+/* Cartão do "dia da consulta" - único elemento de destaque visual da
+   página, com a sequência real de status já usada no sistema */
+.day-strip {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: var(--radius);
+    padding: 28px 26px 30px;
+}
+
+.day-strip-label {
+    font-size: 0.85rem;
+    color: #A9C4D7;
+    margin-bottom: 20px;
+}
+
+.day-step-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    position: relative;
+}
+
+.day-step-list::before {
+    content: '';
+    position: absolute;
+    left: 46px;
+    top: 8px;
+    bottom: 8px;
+    width: 2px;
+    background: rgba(255, 255, 255, 0.16);
+}
+
+.day-step {
+    position: relative;
+    display: grid;
+    grid-template-columns: 40px 20px 1fr;
+    align-items: start;
+    gap: 14px;
+    padding-bottom: 26px;
+}
+
+.day-step.is-final { padding-bottom: 0; }
+
+.day-time {
+    font-size: 0.82rem;
+    color: #A9C4D7;
+    padding-top: 2px;
+}
+
+.day-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--mint);
+    margin: 3px auto 0;
+    box-shadow: 0 0 0 4px rgba(23, 166, 115, 0.2);
+}
+
+.day-text {
+    font-size: 0.95rem;
+    color: #E7F0F6;
+}
+
+.day-text strong { color: var(--white); }
+
+/* ---------- BARRA DE CONFIANÇA ---------- */
+.trust {
+    background: var(--mist);
+    border-bottom: 1px solid #DCE6EC;
+}
+
+.trust-inner {
+    max-width: var(--container);
+    margin: 0 auto;
+    padding: 40px 24px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 32px;
+}
+
+.trust-item {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-left: 18px;
+    border-left: 3px solid var(--mint);
+}
+
+.trust-num {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.15rem;
+    color: var(--navy-deep);
+}
+
+.trust-text {
+    font-size: 0.92rem;
+    color: var(--text-soft);
+}
+
+/* ---------- O QUE MUDA ---------- */
+.problems h2 {
+    font-size: clamp(1.6rem, 3vw, 2.2rem);
+    max-width: 20ch;
+}
+
+.problems-grid {
+    margin-top: 40px;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1px;
+    background: #E5EDF2;
+    border: 1px solid #E5EDF2;
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.problem {
+    background: var(--white);
+    padding: 28px 30px;
+}
+
+.problem p {
+    font-size: 1rem;
+    color: var(--text-body);
+}
+
+/* ---------- MÓDULOS ---------- */
+.modules { background: var(--mist); }
+
+.modules h2 {
+    font-size: clamp(1.6rem, 3vw, 2.2rem);
+    max-width: 20ch;
+}
+
+.modules-grid {
+    margin-top: 40px;
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 20px;
+}
+
+.module {
+    background: var(--white);
+    border: 1px solid #DCE6EC;
+    border-radius: var(--radius);
+    padding: 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.module i {
+    font-size: 1.5rem;
+    color: var(--mint);
+}
+
+.module h3 {
+    font-size: 1.05rem;
+}
+
+.module p {
+    font-size: 0.92rem;
+    color: var(--text-soft);
+}
+
+.module-lg { grid-column: span 3; }
+.module-md { grid-column: span 3; }
+.module-sm { grid-column: span 2; }
+
+/* ---------- DESTAQUE EQUIPE MULTIDISCIPLINAR ---------- */
+.highlight {
+    background: var(--navy-deep);
+    color: var(--white);
+}
+
+.highlight-inner {
+    max-width: 780px;
+    text-align: left;
+}
+
+.highlight-quote {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(1.3rem, 2.6vw, 1.7rem);
+    line-height: 1.4;
+    color: var(--white);
+}
+
+.highlight-context {
+    margin-top: 18px;
+    color: #A9C4D7;
+    font-size: 0.95rem;
+}
+
+/* ---------- PREÇO ---------- */
+.pricing h2 {
+    text-align: center;
+    font-size: clamp(1.6rem, 3vw, 2.2rem);
+}
+
+.price-card {
+    margin: 40px auto 0;
+    max-width: 460px;
+    background: var(--white);
+    border: 1px solid #DCE6EC;
+    border-radius: var(--radius);
+    padding: 40px 36px;
+    box-shadow: 0 20px 50px -24px rgba(15, 76, 117, 0.35);
+}
+
+.price-main {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    justify-content: center;
+}
+
+.price-value {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 3rem;
+    color: var(--navy-deep);
+}
+
+.price-period {
+    font-size: 1.05rem;
+    color: var(--text-soft);
+}
+
+.price-note {
+    margin-top: 14px;
+    text-align: center;
+    font-size: 0.92rem;
+    color: var(--text-soft);
+}
+
+.price-list {
+    list-style: none;
+    margin: 28px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.price-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 0.95rem;
+    color: var(--text-body);
+}
+
+.price-list i {
+    color: var(--mint);
+    margin-top: 3px;
+}
+
+.price-card .btn { margin-top: 30px; }
+
+/* ---------- CTA FINAL ---------- */
+.final-cta {
+    background: linear-gradient(180deg, var(--navy) 0%, var(--navy-deep) 100%);
+    color: var(--white);
+}
+
+.final-cta-inner { text-align: center; }
+
+.final-cta h2 {
+    color: var(--white);
+    font-size: clamp(1.5rem, 3.2vw, 2.1rem);
+    max-width: 26ch;
+    margin: 0 auto;
+}
+
+.final-actions { justify-content: center; margin-top: 30px; }
+
+/* ---------- RODAPÉ ---------- */
+.site-footer {
+    background: var(--ink);
+    color: #9FB3BF;
+}
+
+.footer-inner {
+    max-width: var(--container);
+    margin: 0 auto;
+    padding: 26px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    font-size: 0.85rem;
+}
+
+.footer-links {
+    display: flex;
+    gap: 18px;
+    font-size: 1.05rem;
+}
+
+.footer-links a:hover { color: var(--white); }
+
+/* =========================================================
+   RESPONSIVO
+   ========================================================= */
+@media (max-width: 900px) {
+    .hero-inner { grid-template-columns: 1fr; gap: 40px; }
+    .modules-grid { grid-template-columns: repeat(2, 1fr); }
+    .module-lg, .module-md, .module-sm { grid-column: span 1; }
+    .problems-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 768px) {
+    .nav-links { display: none; }
+    .trust-inner { grid-template-columns: 1fr; gap: 22px; }
+    .section-inner { padding: 64px 20px; }
+    body { overflow-x: hidden; }
+}
+
+@media (max-width: 480px) {
+    .hero-inner { padding: 48px 20px 56px; }
+    .hero-actions, .final-actions { flex-direction: column; align-items: stretch; }
+    .hero-actions .btn, .final-actions .btn { width: 100%; text-align: center; }
+    .price-card { padding: 30px 22px; }
+    .footer-inner { flex-direction: column; text-align: center; }
+}

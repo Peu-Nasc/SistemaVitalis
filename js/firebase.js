@@ -11,7 +11,6 @@ let firebaseConfig;
 // ROTEAMENTO DE BANCO DE DADOS POR SUBDOMÍNIO
 if (host === 'elisangela.sistemavitalis.com.br') {
     
-    // Removi a palavra "const" daqui!
     firebaseConfig = {
         apiKey: "AIzaSyAUL4a9jX__kx2dR-dZioalQxM7QxZPSl0",
         authDomain: "vitalis---elisangela.firebaseapp.com",
@@ -24,7 +23,6 @@ if (host === 'elisangela.sistemavitalis.com.br') {
 
 } else if (host === 'daniel.sistemavitalis.com.br') {
     
-    // Removi a palavra "const" daqui!
     firebaseConfig = {
         apiKey: "AIzaSyCF_cc8t8cqB1iYjKku1r7pzIJa5d0029U",
         authDomain: "vitalis---daniel.firebaseapp.com",
@@ -35,26 +33,39 @@ if (host === 'elisangela.sistemavitalis.com.br') {
     };
     console.log("Conectado ao banco: Clínica Dr. Daniel");
 
+} else if (host === 'teste.sistemavitalis.com.br' || host === 'localhost' || host === '127.0.0.1') {
+    
+    // AMBIENTE DE TESTES E DEMONSTRAÇÃO (Sandbox)
+    firebaseConfig = {
+        apiKey: "AIzaSyD0IiMD48j88dVv2XAnRIItJjoTEITEMiw",
+        authDomain: "clinicamed-69b57.firebaseapp.com",
+        projectId: "clinicamed-69b57",
+        storageBucket: "clinicamed-69b57.firebasestorage.app",
+        messagingSenderId: "887597358188",
+        appId: "1:887597358188:web:80602df42ef4039fb90c49"
+    };
+    console.log("Conectado ao banco: Ambiente de Teste / Demo");
+
 } else {
     
-    // AMBIENTE DE DESENVOLVIMENTO (VSCode / Localhost / Domínio Raiz)
-    // Usando a chave da Elisangela como padrão para você conseguir testar no seu PC
+    // FALLBACK GERAL: Se acessar sistemavitalis.com.br ou outro link não mapeado, 
+    // usa as chaves do projeto de testes para não quebrar a aplicação.
     firebaseConfig = {
-  apiKey: "AIzaSyD0IiMD48j88dVv2XAnRIItJjoTEITEMiw",
-  authDomain: "clinicamed-69b57.firebaseapp.com",
-  projectId: "clinicamed-69b57",
-  storageBucket: "clinicamed-69b57.firebasestorage.app",
-  messagingSenderId: "887597358188",
-  appId: "1:887597358188:web:80602df42ef4039fb90c49"
-};
-    console.log("Conectado ao banco: Ambiente Local/Teste");
+        apiKey: "AIzaSyD0IiMD48j88dVv2XAnRIItJjoTEITEMiw",
+        authDomain: "clinicamed-69b57.firebaseapp.com",
+        projectId: "clinicamed-69b57",
+        storageBucket: "clinicamed-69b57.firebasestorage.app",
+        messagingSenderId: "887597358188",
+        appId: "1:887597358188:web:80602df42ef4039fb90c49"
+    };
+    console.log("Conectado ao banco: Fallback de Segurança");
 }
 
 // Inicializa o Firebase com a chave correta escolhida acima
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
-const storage = getStorage(app); // <- Adicione esta linha!
+const storage = getStorage(app);
 
 // Exporte o storage também!
 export { app, db, auth, storage };

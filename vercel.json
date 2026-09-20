@@ -1,13 +1,23 @@
 {
   "rewrites": [
     {
+      "source": "/",
+      "has": [{ "type": "host", "value": "sistemavitalis.com.br" }],
+      "destination": "/landing/index.html"
+    },
+    {
       "source": "/(.*)",
-      "has": [
-        {
-          "type": "host",
-          "value": "(www\\.)?sistemavitalis\\.com\\.br"
-        }
-      ],
+      "has": [{ "type": "host", "value": "sistemavitalis.com.br" }],
+      "destination": "/landing/$1"
+    },
+    {
+      "source": "/",
+      "has": [{ "type": "host", "value": "www.sistemavitalis.com.br" }],
+      "destination": "/landing/index.html"
+    },
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "www.sistemavitalis.com.br" }],
       "destination": "/landing/$1"
     }
   ]

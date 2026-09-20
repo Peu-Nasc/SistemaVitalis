@@ -1,6 +1,13 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
+    <script>
+        // Trava: Se entrar no domínio de vendas, joga direto pra pasta landing
+        const host = window.location.hostname;
+        if (host === 'sistemavitalis.com.br' || host === 'www.sistemavitalis.com.br') {
+            window.location.replace('/landing/');
+        }
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VITALIS - Gestão Clínica Médica</title>

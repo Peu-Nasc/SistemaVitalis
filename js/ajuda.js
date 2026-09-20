@@ -66,10 +66,6 @@ const TOPICOS_AJUDA = [
             {
                 titulo: 'Como marco um paciente como Ativo ou Inativo?',
                 resposta: 'Esse status é calculado automaticamente pelo sistema com base na data da última consulta do paciente - não precisa marcar manualmente.'
-            },
-            {
-                titulo: 'Como anexo o resultado de um exame (foto ou PDF) no prontuário?',
-                resposta: 'Dentro do prontuário do paciente, use a aba "Exames / Imagens". Ela é diferente da aba "Exames Solicitados": lá você registra o pedido do exame; aqui você anexa o resultado já pronto (foto de raio-X, laudo em PDF, etc.), com uma descrição opcional.'
             }
         ]
     },

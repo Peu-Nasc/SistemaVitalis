@@ -19,6 +19,10 @@
       "source": "/(.*)",
       "has": [{ "type": "host", "value": "www.sistemavitalis.com.br" }],
       "destination": "/landing/$1"
+    },
+    {
+      "source": "/",
+      "destination": "/app.html"
     }
   ]
 }

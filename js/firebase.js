@@ -50,15 +50,7 @@ if (host === 'elisangela.sistemavitalis.com.br') {
     
     // FALLBACK GERAL: Se acessar sistemavitalis.com.br ou outro link não mapeado, 
     // usa as chaves do projeto de testes para não quebrar a aplicação.
-    firebaseConfig = {
-        apiKey: "AIzaSyD0IiMD48j88dVv2XAnRIItJjoTEITEMiw",
-        authDomain: "clinicamed-69b57.firebaseapp.com",
-        projectId: "clinicamed-69b57",
-        storageBucket: "clinicamed-69b57.firebasestorage.app",
-        messagingSenderId: "887597358188",
-        appId: "1:887597358188:web:80602df42ef4039fb90c49"
-    };
-    console.log("Conectado ao banco: Fallback de Segurança");
+    
 }
 
 // Inicializa o Firebase com a chave correta escolhida acima

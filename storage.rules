@@ -1,0 +1,53 @@
+rules_version = '2';
+
+// ============================================================
+// VITALIS - Regras do Storage
+// Caminho usado pelo sistema: pacientes/{clinicaId}/{subpasta}/{arquivo}
+//   subpastas: foto, documento, outros, prontuario/{pacienteId}
+// Lê o perfil/clínica do usuário no Firestore (/usuarios/{uid}).
+// ============================================================
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function dados() {
+      return firestore.get(/databases/(default)/documents/usuarios/$(request.auth.uid)).data;
+    }
+    function logado() {
+      return request.auth != null
+        && firestore.exists(/databases/(default)/documents/usuarios/$(request.auth.uid));
+    }
+    function daClinica(clinicaId) { return logado() && dados().clinicaId == clinicaId; }
+    function perfil() { return dados().perfil; }
+
+    // Upload: até 10 MB, só imagem ou PDF
+    function uploadValido() {
+      return request.resource.size < 10 * 1024 * 1024
+        && (request.resource.contentType.matches('image/.*')
+            || request.resource.contentType == 'application/pdf');
+    }
+
+    match /pacientes/{clinicaId}/{subpasta}/{resto=**} {
+      // Exames/imagens do prontuário: Doutor(a) e admin. Recepção não vê.
+      // Foto, documento e outros anexos de cadastro: todos da clínica leem,
+      // admin e recepção enviam.
+      allow read: if daClinica(clinicaId)
+        && (subpasta != 'prontuario' || perfil() in ['Doutor(a)', 'admin']);
+
+      allow create: if daClinica(clinicaId) && uploadValido()
+        && (subpasta == 'prontuario'
+              ? perfil() in ['Doutor(a)', 'admin']
+              : perfil() in ['admin', 'recepcao']);
+
+      allow update: if false;
+
+      allow delete: if daClinica(clinicaId)
+        && (subpasta == 'prontuario'
+              ? perfil() in ['Doutor(a)', 'admin']
+              : perfil() in ['admin', 'recepcao']);
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

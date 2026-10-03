@@ -1,0 +1,164 @@
+rules_version = '2';
+
+// ============================================================
+// VITALIS - Regras do Firestore
+//
+// Modelo: cada clínica é um projeto Firebase separado, mas dentro dele
+// ainda existem clínicas/filiais diferentes (campo clinicaId) e 3 perfis:
+// 'admin', 'Doutor(a)' e 'recepcao'.
+//
+// PRÉ-REQUISITO: o documento de cada usuário em /usuarios precisa ter
+// como ID o UID do Firebase Auth (e não um ID aleatório), com os campos
+// nome, email, perfil e clinicaId. É assim que a regra descobre quem é
+// quem sem depender do que o navegador diz.
+// ============================================================
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- Identidade (vem do banco, não do navegador) ----------
+    function logado() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid));
+    }
+    function dadosUsuario() {
+      return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;
+    }
+    function clinica()      { return dadosUsuario().clinicaId; }
+    function ehAdmin()      { return logado() && dadosUsuario().perfil == 'admin'; }
+    function ehDoutor()     { return logado() && dadosUsuario().perfil == 'Doutor(a)'; }
+    function ehRecepcao()   { return logado() && dadosUsuario().perfil == 'recepcao'; }
+
+    // ---------- Isolamento por clínica ----------
+    function daMinhaClinica()    { return logado() && resource.data.clinicaId == clinica(); }
+    function criaNaMinhaClinica(){ return logado() && request.resource.data.clinicaId == clinica(); }
+    function mantemClinica()     { return request.resource.data.clinicaId == resource.data.clinicaId; }
+
+    // Campos do prontuário: só o(a) Doutor(a) (e o admin) mexem neles
+    function camposClinicos() {
+      return ['evolucoes', 'examesSolicitados', 'imagensExames', 'proximoRetorno'];
+    }
+    function camposAlterados() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    // ---------- Usuários e clínicas: somente leitura pelo app ----------
+    // Criar/alterar usuário é feito pelo console (ou futuro painel via
+    // Cloud Function). Assim ninguém consegue se promover a admin.
+    match /usuarios/{uid} {
+      allow read: if request.auth != null
+        && (request.auth.uid == uid
+            || (ehAdmin() && resource.data.clinicaId == clinica()));
+      allow write: if false;
+    }
+
+    match /clinicas/{clinicaId} {
+      allow read: if logado() && clinicaId == clinica();
+      allow write: if false;
+    }
+
+    // ---------- Pacientes ----------
+    match /pacientes/{id} {
+      allow read:   if daMinhaClinica();
+      allow create: if criaNaMinhaClinica() && (ehAdmin() || ehRecepcao());
+      allow update: if daMinhaClinica() && mantemClinica() && (
+          ehAdmin()
+          || (ehRecepcao() && !camposAlterados().hasAny(camposClinicos()))
+          || (ehDoutor()   &&  camposAlterados().hasOnly(camposClinicos()))
+      );
+      allow delete: if daMinhaClinica() && (ehAdmin() || ehRecepcao());
+    }
+
+    // ---------- Equipe ----------
+    match /profissionais/{id} {
+      allow read:   if daMinhaClinica();
+      allow create: if criaNaMinhaClinica() && (ehAdmin() || ehRecepcao());
+      allow update: if daMinhaClinica() && mantemClinica() && (ehAdmin() || ehRecepcao());
+      allow delete: if daMinhaClinica() && (ehAdmin() || ehRecepcao());
+    }
+
+    // ---------- Agenda ----------
+    match /agendamentos/{id} {
+      allow read:   if daMinhaClinica();
+      allow create: if criaNaMinhaClinica();
+      allow update: if daMinhaClinica() && mantemClinica();
+      allow delete: if daMinhaClinica() && (ehAdmin() || ehRecepcao());
+    }
+
+    match /bloqueios_agenda/{id} {
+      allow read:   if daMinhaClinica();
+      allow create: if criaNaMinhaClinica();
+      allow update: if daMinhaClinica() && mantemClinica();
+      allow delete: if daMinhaClinica();
+    }
+
+    // ---------- Financeiro ----------
+    // Recepção LANÇA (entrada e despesa comum) mas NÃO LÊ nada.
+    // Repasse médico, edição e exclusão: só admin.
+    match /financeiro/{id} {
+      allow read: if daMinhaClinica() && ehAdmin();
+      allow create: if criaNaMinhaClinica()
+        && request.resource.data.valor is number
+        && request.resource.data.valor > 0
+        && (
+          ehAdmin()
+          || (ehRecepcao()
+              && request.resource.data.tipo in ['Receita', 'Custo Fixo', 'Custo Variavel'])
+        );
+      allow update, delete: if daMinhaClinica() && ehAdmin();
+    }
+
+    match /custosFixos/{id} {
+      allow read:   if daMinhaClinica() && ehAdmin();
+      allow create: if criaNaMinhaClinica() && ehAdmin();
+      allow update: if daMinhaClinica() && mantemClinica() && ehAdmin();
+      allow delete: if daMinhaClinica() && ehAdmin();
+    }
+
+    // Catálogos: todos leem (a Agenda e o atalho de pacote usam), só admin edita
+    match /procedimentos/{id} {
+      allow read:   if daMinhaClinica();
+      allow create: if criaNaMinhaClinica() && ehAdmin();
+      allow update: if daMinhaClinica() && mantemClinica() && ehAdmin();
+      allow delete: if daMinhaClinica() && ehAdmin();
+    }
+
+    match /pacotes/{id} {
+      allow read:   if daMinhaClinica();
+      allow create: if criaNaMinhaClinica() && ehAdmin();
+      allow update: if daMinhaClinica() && mantemClinica() && ehAdmin();
+      allow delete: if daMinhaClinica() && ehAdmin();
+    }
+
+    // ---------- Estoque (menu oculto para Doutor(a)) ----------
+    match /estoque/{id} {
+      allow read:   if daMinhaClinica() && (ehAdmin() || ehRecepcao());
+      allow create: if criaNaMinhaClinica() && (ehAdmin() || ehRecepcao());
+      allow update: if daMinhaClinica() && mantemClinica() && (ehAdmin() || ehRecepcao());
+      allow delete: if daMinhaClinica() && (ehAdmin() || ehRecepcao());
+    }
+
+    // ---------- Notificações ----------
+    match /notificacoes/{id} {
+      allow read:   if daMinhaClinica();
+      allow create: if criaNaMinhaClinica();
+      allow update: if daMinhaClinica() && mantemClinica();
+      allow delete: if daMinhaClinica() && (ehAdmin() || ehRecepcao());
+    }
+
+    // ---------- Auditoria: só admin lê; ninguém edita nem apaga ----------
+    // O registro só é aceito se "quem fez" bater com o usuário autenticado
+    // de verdade (impede forjar log em nome de outra pessoa).
+    match /auditoria/{id} {
+      allow read: if daMinhaClinica() && ehAdmin();
+      allow create: if criaNaMinhaClinica()
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.perfil == dadosUsuario().perfil;
+      allow update, delete: if false;
+    }
+
+    // Qualquer coisa não listada acima: bloqueada
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

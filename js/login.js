@@ -5,7 +5,7 @@ import { auth, db } from './firebase.js';
 
 // 2. Puxa as ferramentas de Autenticação do Google
 // 2. Puxa as ferramentas de Autenticação do Google
-import { signInWithEmailAndPassword, onAuthStateChanged, signOut, setPersistence, browserSessionPersistence } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js';
+import { signInWithEmailAndPassword, sendPasswordResetEmail, onAuthStateChanged, signOut, setPersistence, browserSessionPersistence } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js';
 // 3. Puxa as ferramentas de Banco de Dados do Google
 import { collection, query, where, getDocs, addDoc, doc, getDoc } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js';
 
@@ -88,11 +88,12 @@ export function initAuth() {
     onAuthStateChanged(auth, async (user) => {
         if (user) {
             // Vai no banco e busca o perfil e a clínica de quem está logado
-            const q = query(collection(db, "usuarios"), where("email", "==", user.email));
-            const querySnapshot = await getDocs(q);
+            // O documento do usuário tem como ID o próprio UID do Auth (as regras
+            // do Firestore dependem disso pra saber quem é quem)
+            const perfilSnap = await getDoc(doc(db, "usuarios", user.uid));
             
-            if (!querySnapshot.empty) {
-                const dadosUsuario = querySnapshot.docs[0].data();
+            if (perfilSnap.exists()) {
+                const dadosUsuario = perfilSnap.data();
 
                 const acesso = await verificarAcessoPorIp(dadosUsuario.clinicaId, dadosUsuario.perfil);
                 if (!acesso.permitido) {
@@ -120,9 +121,18 @@ export function initAuth() {
                 // Pacientes carrega depois da agenda: o status "Ativo/Inativo" da
                 // tabela é calculado a partir da última consulta de cada paciente.
                 await carregarPacientes();
-                await carregarCustosFixos();
-                await carregarFinanceiro();
-                await carregarEstoque();
+                // Só carrega o que o perfil pode ler (as regras do Firestore
+                // bloqueiam o resto e gerariam erro na tela):
+                //  - Financeiro/Custos Fixos: só admin (recepção só lança)
+                //  - Estoque: admin e recepção
+                const perfilLogado = clinicaState.sessao.perfil;
+                if (perfilLogado === 'admin') {
+                    await carregarCustosFixos();
+                    await carregarFinanceiro();
+                }
+                if (perfilLogado === 'admin' || perfilLogado === 'recepcao') {
+                    await carregarEstoque();
+                }
                 await carregarProcedimentos();
                 await carregarPacotes();
 
@@ -164,10 +174,9 @@ export function initAuth() {
                 const user = userCredential.user;
 
                 // 2. Procura qual é o perfil desse e-mail na sua coleção de controle
-                const q = query(collection(db, "usuarios"), where("email", "==", user.email));
-                const querySnapshot = await getDocs(q);
+                const perfilSnap = await getDoc(doc(db, "usuarios", user.uid));
                 
-                if (querySnapshot.empty) {
+                if (!perfilSnap.exists()) {
                     // Se o e-mail não estiver na tabela de permissões do Firebase, bloqueia na hora!
                     showToast('Acesso negado. Usuário sem perfil configurado no sistema.', 'error');
                     await signOut(auth);
@@ -175,7 +184,7 @@ export function initAuth() {
                 }
 
                 // Pega as permissões que você configurou manualmente no Firebase
-                const dadosUsuario = querySnapshot.docs[0].data();
+                const dadosUsuario = perfilSnap.data();
 
                 // Checagem de IP - roda antes de liberar qualquer coisa. Se
                 // falhar, derruba a sessão do Firebase Auth que acabou de
@@ -222,6 +231,56 @@ export function initAuth() {
             }
         });
     });
+
+    // ESQUECI MINHA SENHA
+    // Usa o e-mail já digitado no campo de login. O Firebase envia o link de
+    // redefinição (em português, ver languageCode abaixo). A mensagem é sempre
+    // a mesma, exista a conta ou não, pra ninguém usar essa tela pra descobrir
+    // quais e-mails estão cadastrados. Intervalo de 60s entre pedidos evita
+    // disparo repetido de e-mails.
+    auth.languageCode = 'pt-BR';
+    const btnEsqueciSenha = document.getElementById('btn-esqueci-senha');
+    let ultimoPedidoSenha = 0;
+
+    if (btnEsqueciSenha) {
+        btnEsqueciSenha.addEventListener('click', async () => {
+            const campoEmail = document.getElementById('login-email');
+            const email = campoEmail.value.trim();
+
+            if (!email || !campoEmail.checkValidity()) {
+                showToast('Digite seu e-mail no campo acima e clique em "Esqueci minha senha" de novo.', 'warning');
+                campoEmail.focus();
+                return;
+            }
+
+            const restante = 60000 - (Date.now() - ultimoPedidoSenha);
+            if (restante > 0) {
+                showToast(`Aguarde ${Math.ceil(restante / 1000)}s para pedir um novo link.`, 'warning');
+                return;
+            }
+
+            await comEstadoDeCarregamento(btnEsqueciSenha, 'Enviando...', async () => {
+                try {
+                    await sendPasswordResetEmail(auth, email);
+                    ultimoPedidoSenha = Date.now();
+                } catch (error) {
+                    console.error("Erro ao enviar redefinição de senha:", error.code);
+                    // Só avisa de erro se for problema de conexão ou excesso de pedidos;
+                    // conta inexistente fica com a mesma mensagem de sucesso (de propósito)
+                    if (error.code === 'auth/network-request-failed') {
+                        showToast('Sem conexão. Verifique sua internet e tente de novo.', 'error');
+                        return;
+                    }
+                    if (error.code === 'auth/too-many-requests') {
+                        showToast('Muitas tentativas. Aguarde alguns minutos e tente de novo.', 'error');
+                        return;
+                    }
+                    ultimoPedidoSenha = Date.now();
+                }
+                showToast('Se este e-mail estiver cadastrado, você receberá um link para criar uma nova senha. Verifique também o spam.', 'success');
+            });
+        });
+    }
 
     btnSolicitarAcesso.addEventListener('click', () => {
         const mensagem = encodeURIComponent("Olá JS Ferreira, gostaria de solicitar minhas credenciais de acesso ao sistema ERP.");

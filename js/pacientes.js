@@ -17,6 +17,17 @@ let anexosEmEdicao = null;
 // Storage só depois que o cadastro é salvo com sucesso.
 let anexosParaExcluirDoStorage = [];
 
+// Blocos opcionais do cadastro (<details class="bloco-opcional">): ficam
+// recolhidos num cadastro novo pra deixar o formulário curto, mas abrem
+// sozinhos quando já têm algo preenchido (ex: editando um paciente que tem
+// convênio cadastrado) - assim ninguém acha que o dado "sumiu".
+function ajustarBlocosOpcionais() {
+    document.querySelectorAll('#form-cadastro details.bloco-opcional').forEach(bloco => {
+        bloco.open = Array.from(bloco.querySelectorAll('input:not([type="file"]), select, textarea'))
+            .some(campo => campo.value && campo.value.trim() !== '');
+    });
+}
+
 export function initPacientes() {
     const modalCadastro = document.getElementById('modal-cadastro');
     const tipoCadastro = document.getElementById('tipo-cadastro');
@@ -71,6 +82,7 @@ export function initPacientes() {
             document.getElementById('cad-cpf').style.backgroundColor = '#fbfbfc';
             document.getElementById('step-dados-cadastrais').style.display = 'grid';
         }
+        ajustarBlocosOpcionais();
         modalCadastro.classList.add('active');
     }
 
@@ -632,6 +644,7 @@ export function initPacientes() {
                         : { foto: null, documento: null, outros: [] };
                     anexosParaExcluirDoStorage = [];
                     renderizarAnexosExistentes();
+                    ajustarBlocosOpcionais();
                 }
             }
         });

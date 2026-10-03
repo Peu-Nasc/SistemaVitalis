@@ -82,6 +82,9 @@
                 <p id="profile-user-name">Carregando...</p>
                 <small id="profile-clinic-status"><i class="fa-solid fa-shield-check"></i> Licença Ativa</small>
                 
+                <button id="btn-abrir-alterar-senha" type="button" class="btn-action btn-logout" style="margin-bottom:8px;">
+                    <i class="fa-solid fa-key"></i> Alterar Senha
+                </button>
                 <button id="btn-logout" class="btn-action btn-logout">
                     <i class="fa-solid fa-power-off"></i> Encerrar Sessão
                 </button>
@@ -1062,13 +1065,17 @@
                         <div class="form-group"><label>E-mail</label><input type="email" id="cad-email" class="input-premium"></div>
 
                         <div class="paciente-only full-width form-grid">
-                            <div class="form-group full-width"><h3 class="form-section-title">Informações de Saúde e Convênio</h3></div>
+                            <details id="bloco-saude" class="bloco-opcional full-width">
+                                <summary><i class="fa-solid fa-notes-medical"></i> Informações de Saúde e Convênio <small>(opcional)</small></summary>
+                                <div class="form-grid bloco-opcional-corpo">
                             <div class="form-group"><label>Tipo Sanguíneo</label><input type="text" id="cad-sangue" class="input-premium" placeholder="Ex: O+"></div>
                             <div class="form-group"><label>Alergias / Restrições (PCD)</label><input type="text" id="cad-alergias" class="input-premium" placeholder="Ex: Dipirona, Cadeirante"></div>
                             <div class="form-group"><label>Convênio / Operadora</label><input type="text" id="cad-convenio" class="input-premium" placeholder="Deixe em branco se Particular"></div>
                             <div class="form-group"><label>Número da Carteirinha</label><input type="text" id="cad-carteirinha" class="input-premium"></div>
                             <div class="form-group"><label>Contato de Emergência (Nome/Tel)</label><input type="text" id="cad-emergencia" class="input-premium"></div>
                             <div class="form-group"><label>Responsável Legal (Se menor)</label><input type="text" id="cad-responsavel" class="input-premium"></div>
+                                </div>
+                            </details>
 
                             <div class="form-group full-width" style="display: none;"><h3 class="form-section-title">Anexos (opcional)</h3></div>
                                 <div class="form-group full-width" id="anexos-existentes-container" style="display: none;">
@@ -1461,6 +1468,33 @@
     </div>
 
     <!-- ================== MODAL DE CANCELAMENTO DE CONSULTA (status: Cancelado) ================== -->
+    <!-- ================== MODAL: ALTERAR MINHA SENHA ================== -->
+    <div id="modal-alterar-senha" class="modal-overlay">
+        <div class="modal-content modal-sm">
+            <header class="modal-header">
+                <h2>Alterar Senha</h2>
+                <button class="btn-close-modal" id="btn-close-alterar-senha" type="button" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+            </header>
+            <div class="modal-body">
+                <form id="form-alterar-senha" class="form-grid" novalidate>
+                    <div class="form-group full-width">
+                        <label for="senha-atual">Senha atual *</label>
+                        <input type="password" id="senha-atual" class="input-premium" autocomplete="current-password" required>
+                    </div>
+                    <div class="form-group full-width">
+                        <label for="senha-nova">Nova senha * <small style="color:#6C757D;">(mín. 8 caracteres, com letra e número)</small></label>
+                        <input type="password" id="senha-nova" class="input-premium" autocomplete="new-password" required>
+                    </div>
+                    <div class="form-group full-width">
+                        <label for="senha-confirma">Confirmar nova senha *</label>
+                        <input type="password" id="senha-confirma" class="input-premium" autocomplete="new-password" required>
+                    </div>
+                    <div class="form-actions full-width"><button type="submit" class="btn-primary"><i class="fa-solid fa-lock"></i> Salvar nova senha</button></div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <div id="modal-cancelar-agendamento" class="modal-overlay">
         <div class="modal-content modal-sm">
             <header class="modal-header">

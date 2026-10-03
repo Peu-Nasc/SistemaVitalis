@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Redefinir senha - VITALIS</title>
+    <link rel="stylesheet" href="style-app.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px;
+               background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-light) 100%); }
+        .rs-card { width: 100%; max-width: 440px; background: var(--surface-color); border-radius: 16px;
+                   padding: 40px 36px; box-shadow: 0 20px 50px rgba(15, 76, 117, .35); }
+        .rs-logo { width: 56px; height: 56px; border-radius: 14px; background: var(--primary-color); color: #fff;
+                   display: flex; align-items: center; justify-content: center; font-size: 1.6rem; margin: 0 auto 14px; }
+        .rs-brand { text-align: center; font-family: var(--font-brand); color: var(--primary-color); letter-spacing: 2px; font-size: 1.1rem; margin-bottom: 24px; }
+        .rs-card h1 { font-size: 1.5rem; color: var(--text-main); text-align: center; margin-bottom: 6px; }
+        .rs-sub { text-align: center; color: var(--text-light); font-size: .95rem; margin-bottom: 24px; }
+        .rs-field { margin-bottom: 16px; position: relative; }
+        .rs-field label { display: block; font-weight: 600; font-size: .85rem; margin-bottom: 6px; color: var(--text-main); }
+        .rs-field .input-premium { width: 100%; padding-right: 44px; }
+        .rs-toggle { position: absolute; right: 6px; bottom: 6px; background: none; border: none; color: var(--text-light); cursor: pointer; padding: 8px 10px; }
+        .rs-regras { list-style: none; font-size: .82rem; color: var(--text-light); margin: 0 0 18px; }
+        .rs-regras li { padding: 2px 0; }
+        .rs-regras li.ok { color: var(--accent-color); }
+        .rs-regras li i { width: 16px; }
+        .rs-msg { border-radius: 8px; padding: 12px 14px; font-size: .9rem; margin-bottom: 16px; display: none; }
+        .rs-msg.erro { display: block; background: #fdecea; color: #b42318; }
+        .rs-btn { width: 100%; padding: 14px; font-size: 1rem; display: flex; justify-content: center; align-items: center; gap: 10px; text-decoration: none; }
+        .rs-estado { display: none; text-align: center; }
+        .rs-estado.ativo { display: block; }
+        .rs-icone { font-size: 2.6rem; margin-bottom: 12px; }
+        .rs-icone.ok { color: var(--accent-color); }
+        .rs-icone.erro { color: #dc3545; }
+    </style>
+</head>
+<body>
+    <main class="rs-card">
+        <div class="rs-logo"><i class="fa-solid fa-staff-snake"></i></div>
+        <div class="rs-brand">VITALIS</div>
+
+        <div id="estado-carregando" class="rs-estado ativo">
+            <div class="rs-icone"><i class="fa-solid fa-spinner fa-spin"></i></div>
+            <p class="rs-sub">Validando seu link...</p>
+        </div>
+
+        <div id="estado-form" class="rs-estado">
+            <h1>Criar nova senha</h1>
+            <p class="rs-sub" id="rs-email"></p>
+            <div id="rs-erro" class="rs-msg" role="alert" aria-live="polite"></div>
+            <form id="form-redefinir" novalidate>
+                <div class="rs-field">
+                    <label for="nova-senha">Nova senha</label>
+                    <input type="password" id="nova-senha" class="input-premium" autocomplete="new-password" required>
+                    <button type="button" class="rs-toggle" id="toggle-senha" aria-label="Mostrar ou ocultar a senha"><i class="fa-regular fa-eye"></i></button>
+                </div>
+                <div class="rs-field">
+                    <label for="confirma-senha">Confirmar nova senha</label>
+                    <input type="password" id="confirma-senha" class="input-premium" autocomplete="new-password" required>
+                </div>
+                <ul class="rs-regras" id="rs-regras">
+                    <li data-regra="tamanho"><i class="fa-regular fa-circle"></i> Pelo menos 8 caracteres</li>
+                    <li data-regra="letra"><i class="fa-regular fa-circle"></i> Uma letra</li>
+                    <li data-regra="numero"><i class="fa-regular fa-circle"></i> Um número</li>
+                    <li data-regra="igual"><i class="fa-regular fa-circle"></i> As duas senhas iguais</li>
+                </ul>
+                <button type="submit" class="btn-primary rs-btn" id="btn-salvar-senha" disabled>
+                    <i class="fa-solid fa-lock"></i> Salvar nova senha
+                </button>
+            </form>
+        </div>
+
+        <div id="estado-sucesso" class="rs-estado">
+            <div class="rs-icone ok"><i class="fa-solid fa-circle-check"></i></div>
+            <h1>Senha alterada!</h1>
+            <p class="rs-sub">Agora é só entrar no sistema com a nova senha.</p>
+            <a class="btn-primary rs-btn" href="app.html"><i class="fa-solid fa-right-to-bracket"></i> Ir para o login</a>
+        </div>
+
+        <div id="estado-invalido" class="rs-estado">
+            <div class="rs-icone erro"><i class="fa-solid fa-circle-exclamation"></i></div>
+            <h1>Link inválido ou expirado</h1>
+            <p class="rs-sub">Esse link já foi usado ou passou do prazo. Peça um novo na tela de login, em "Esqueci minha senha".</p>
+            <a class="btn-secondary rs-btn" href="app.html">Voltar ao login</a>
+        </div>
+    </main>
+
+    <script type="module">
+        // Mesmo firebase.js do sistema (escolhe o banco certo pelo domínio)
+        import { auth } from './js/firebase.js';
+        import { verifyPasswordResetCode, confirmPasswordReset } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js';
+
+        auth.languageCode = 'pt-BR';
+        const $ = (id) => document.getElementById(id);
+        const params = new URLSearchParams(window.location.search);
+        const modo = params.get('mode');
+        const codigo = params.get('oobCode');
+
+        function mostrar(estado) {
+            ['carregando', 'form', 'sucesso', 'invalido'].forEach(e => $('estado-' + e).classList.toggle('ativo', e === estado));
+        }
+
+        async function iniciar() {
+            if (modo !== 'resetPassword' || !codigo) return mostrar('invalido');
+            try {
+                const email = await verifyPasswordResetCode(auth, codigo);
+                $('rs-email').textContent = 'Conta: ' + email;
+                mostrar('form');
+                $('nova-senha').focus();
+            } catch (e) {
+                console.error('Link de redefinição inválido:', e.code);
+                mostrar('invalido');
+            }
+        }
+
+        function validar() {
+            const s = $('nova-senha').value, c = $('confirma-senha').value;
+            const r = { tamanho: s.length >= 8, letra: /[A-Za-z]/.test(s), numero: /\d/.test(s), igual: s.length > 0 && s === c };
+            document.querySelectorAll('#rs-regras li').forEach(li => {
+                const ok = r[li.dataset.regra];
+                li.classList.toggle('ok', ok);
+                li.querySelector('i').className = ok ? 'fa-solid fa-circle-check' : 'fa-regular fa-circle';
+            });
+            const tudoOk = Object.values(r).every(Boolean);
+            $('btn-salvar-senha').disabled = !tudoOk;
+            return tudoOk;
+        }
+
+        $('nova-senha').addEventListener('input', validar);
+        $('confirma-senha').addEventListener('input', validar);
+        $('toggle-senha').addEventListener('click', () => {
+            const campos = [$('nova-senha'), $('confirma-senha')];
+            const mostrarSenha = campos[0].type === 'password';
+            campos.forEach(c => c.type = mostrarSenha ? 'text' : 'password');
+            $('toggle-senha').firstElementChild.className = mostrarSenha ? 'fa-regular fa-eye-slash' : 'fa-regular fa-eye';
+        });
+
+        $('form-redefinir').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!validar()) return;
+            const btn = $('btn-salvar-senha');
+            const erro = $('rs-erro');
+            erro.className = 'rs-msg';
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Salvando...';
+            try {
+                await confirmPasswordReset(auth, codigo, $('nova-senha').value);
+                mostrar('sucesso');
+            } catch (err) {
+                console.error('Erro ao redefinir senha:', err.code);
+                if (err.code === 'auth/weak-password') erro.textContent = 'Essa senha é fraca. Use uma mais forte.';
+                else if (err.code === 'auth/network-request-failed') erro.textContent = 'Sem conexão. Verifique a internet e tente de novo.';
+                else if (err.code === 'auth/expired-action-code' || err.code === 'auth/invalid-action-code') return mostrar('invalido');
+                else erro.textContent = 'Não foi possível salvar. Tente novamente.';
+                erro.className = 'rs-msg erro';
+                btn.innerHTML = '<i class="fa-solid fa-lock"></i> Salvar nova senha';
+                validar();
+            }
+        });
+
+        iniciar();
+    </script>
+</body>
+</html>

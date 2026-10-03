@@ -2638,3 +2638,90 @@ summary.timeline-meta:hover {
     line-height: 1.6;
     padding-top: 10px;
 }
+
+/* ========================================================
+   ABAS DE NAVEGAÇÃO (substituem os hubs de cards)
+   ======================================================== */
+.hub-como-abas,
+.btn-voltar-hub,
+.btn-voltar-hub-financeiro { display: none !important; }
+
+.nav-tabs {
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--border-color);
+    margin: 20px 0 22px;
+    -webkit-overflow-scrolling: touch;
+}
+.nav-tab {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    white-space: nowrap;
+    background: none;
+    border: none;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -1px;
+    padding: 12px 18px;
+    font-family: inherit;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-light);
+    cursor: pointer;
+    transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+.nav-tab:hover { color: var(--primary-color); background: #f1f5f9; }
+.nav-tab:focus-visible { outline: 2px solid var(--primary-light); outline-offset: -2px; }
+.nav-tab.active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
+
+/* ========================================================
+   CAMADA DE POLIMENTO VISUAL (sombras, foco, movimento, tabelas)
+   Fica no fim do arquivo de propósito: refina o que já existe
+   sem precisar reescrever os blocos acima.
+   ======================================================== */
+body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+
+.card { border: 1px solid var(--border-color); box-shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 4px 14px rgba(15, 23, 42, .05); transition: box-shadow .2s ease, transform .2s ease; }
+.card-action:hover, .inicio-card:hover { transform: translateY(-3px); box-shadow: 0 10px 28px rgba(15, 76, 117, .16); }
+.big-number { font-variant-numeric: tabular-nums; letter-spacing: -0.5px; }
+
+.btn-primary { box-shadow: 0 2px 6px rgba(15, 76, 117, .25); transition: transform .15s ease, box-shadow .2s ease, background-color .2s ease; }
+.btn-primary:hover:not(:disabled) { box-shadow: 0 6px 16px rgba(15, 76, 117, .3); }
+.btn-primary:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; }
+
+.input-premium { transition: border-color .2s ease, box-shadow .2s ease; }
+.input-premium:focus { border-color: var(--primary-light); box-shadow: 0 0 0 4px rgba(50, 130, 184, .18); outline: none; }
+
+.modal-content { border-radius: 16px; box-shadow: 0 24px 60px rgba(15, 23, 42, .28); }
+.modal-overlay.active { backdrop-filter: blur(3px); }
+.modal-overlay.active .modal-content { animation: modalEntrada .22s ease-out; }
+@keyframes modalEntrada { from { opacity: 0; transform: translateY(14px) scale(.98); } to { opacity: 1; transform: none; } }
+
+table tbody tr { transition: background-color .15s ease; }
+table tbody tr:hover { background-color: #f6f9fc; }
+
+.toast { box-shadow: 0 8px 24px rgba(15, 23, 42, .18); animation: toastEntrada .25s ease-out; }
+@keyframes toastEntrada { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+
+.login-container { box-shadow: 0 30px 70px rgba(15, 23, 42, .35); }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; background-clip: content-box; border: 2px solid transparent; }
+
+:focus-visible { outline: 2px solid var(--primary-light); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+}
+
+/* Blocos recolhíveis (seções opcionais de formulário) */
+.bloco-opcional { grid-column: 1 / -1; border: 1px solid var(--border-color); border-radius: 10px; background: #fafbfc; }
+.bloco-opcional > summary { cursor: pointer; list-style: none; padding: 12px 16px; font-weight: 600; color: var(--primary-color); display: flex; align-items: center; gap: 8px; user-select: none; }
+.bloco-opcional > summary::-webkit-details-marker { display: none; }
+.bloco-opcional > summary small { color: var(--text-light); font-weight: 500; }
+.bloco-opcional > summary::after { content: '\f078'; font-family: 'Font Awesome 6 Free'; font-weight: 900; margin-left: auto; font-size: .8rem; transition: transform .2s ease; }
+.bloco-opcional[open] > summary::after { transform: rotate(180deg); }
+.bloco-opcional-corpo { padding: 4px 16px 16px; }

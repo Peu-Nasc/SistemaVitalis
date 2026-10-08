@@ -20,6 +20,7 @@ import { carregarPacotes } from './pacotes.js';
 import { carregarAuditoria, registrarAuditoria } from './auditoria.js';
 import { atualizarAjudaPorPerfil } from './ajuda.js';
 import { renderizarCardsInicio } from './NavMenu.js';
+import { iniciarPainelMedico } from './painelMedico.js';
 
 // ========================================================
 // RESTRIÇÃO DE ACESSO POR IP (por clínica)
@@ -135,6 +136,14 @@ export function initAuth() {
                 }
                 await carregarProcedimentos();
                 await carregarPacotes();
+
+                // Painel do médico: depende de sessão + profissionais já
+                // carregados (vínculo login -> cadastro da Equipe). Ao
+                // entrar, o Doutor(a) já cai no painel em vez do Início.
+                if (clinicaState.sessao.perfil === 'Doutor(a)') {
+                    iniciarPainelMedico();
+                    document.querySelector('.menu-btn[data-target="painel-medico"]')?.click();
+                }
 
                 // Log de auditoria é restrito ao Administrador - evita leitura
                 // desnecessária no Firestore para quem nunca vai ver a tela.
@@ -329,6 +338,7 @@ function aplicarPermissoesDeTela() {
     const btnFin = document.querySelector('.menu-btn[data-target="financeiro"]');
     const btnEst = document.querySelector('.menu-btn[data-target="estoque"]');
     const btnAudit = document.getElementById('btn-menu-auditoria');
+    const btnPainelMedico = document.getElementById('btn-menu-painel-medico');
 
     // Dentro de Pacientes & Prontuários: o Doutor(a) só consulta - cadastro
     // de paciente novo e a Área da Equipe (gestão de outros profissionais)
@@ -354,9 +364,12 @@ function aplicarPermissoesDeTela() {
     if(formFinanceiroRecepcao) formFinanceiroRecepcao.style.display = 'none';
     // Auditoria é o oposto dos outros: só aparece para o Administrador
     if(btnAudit) btnAudit.style.display = 'none';
+    // "Meu Painel" é o oposto também: só o Doutor(a) enxerga
+    if(btnPainelMedico) btnPainelMedico.style.display = 'none';
 
     // Regras de Bloqueio
     if (perfil === 'Doutor(a)') {
+        if(btnPainelMedico) btnPainelMedico.style.display = 'flex';
         // Médico não vê finanças, nem estoque, nem dashboard geral
         if(btnDash) btnDash.style.display = 'none';
         if(btnFin) btnFin.style.display = 'none';

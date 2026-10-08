@@ -10,6 +10,7 @@ import { initAgenda, atualizarAgenda } from './agenda.js';
 import { initNotificacoes } from './notificacoes.js';
 import { initAuditoria } from './auditoria.js';
 import { initAjuda } from './ajuda.js';
+import { initPainelMedico } from './painelMedico.js';
 
 // ========================================================
 // TRAVA ANTI-SPAM (PREVENÇÃO DE MÚLTIPLAS REQUISIÇÕES)
@@ -54,6 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initNotificacoes();
     initAuditoria();
     initAjuda();
+    initPainelMedico();
 
     calcularDRE();
     atualizarTabelaFinanceiro();

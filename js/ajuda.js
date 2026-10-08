@@ -17,6 +17,25 @@ import { clinicaState } from './state.js';
 
 const TOPICOS_AJUDA = [
     {
+        modulo: 'Meu Painel',
+        icone: 'fa-solid fa-user-doctor',
+        perfis: ['Doutor(a)'],
+        perguntas: [
+            {
+                titulo: 'O que aparece na Fila de Atendimento?',
+                resposta: 'Os pacientes seus que a recepção já marcou como "Aguardando Atendimento" (ou seja, já chegaram à clínica), por ordem de horário. A fila atualiza sozinha, sem precisar recarregar a página, e um aviso aparece na tela quando um novo paciente chega.'
+            },
+            {
+                titulo: 'Como começo um atendimento?',
+                resposta: 'Clique em "Atender" ao lado do paciente na fila. O prontuário abre direto, com um resumo da última consulta no topo (data, suspeita diagnóstica e conduta) para você relembrar o caso.'
+            },
+            {
+                titulo: 'Por que meu painel mostra um aviso de vínculo?',
+                resposta: 'O sistema identifica suas consultas pelo cadastro na Equipe. Se o seu login ainda não estiver cadastrado lá com o mesmo e-mail, a fila e a agenda ficam vazias. Peça ao administrador para ajustar o cadastro.'
+            }
+        ]
+    },
+    {
         modulo: 'Dashboard & DRE',
         icone: 'fa-solid fa-chart-line',
         perfis: ['admin'],

@@ -6,8 +6,11 @@ import { atualizarAgenda } from './agenda.js';
 import { verificarAlertasEstoque } from './estoque.js';
 import { atualizarListaNotificacoes } from './notificacoes.js';
 import { atualizarTabelaAuditoria } from './auditoria.js';
+import { renderizarPainelMedico } from './painelMedico.js';
+
 
 const TITULOS_CARD_INICIO = {
+    'painel-medico': 'Meu Painel',
     dashboard: 'Dashboard & DRE',
     agenda: 'Agenda',
     pacientes: 'Pacientes & Prontuários',
@@ -19,6 +22,7 @@ const TITULOS_CARD_INICIO = {
 };
 
 const ICONES_CARD_INICIO = {
+    'painel-medico': 'fa-solid fa-user-doctor',
     dashboard: 'fa-solid fa-chart-line',
     agenda: 'fa-regular fa-calendar-days',
     pacientes: 'fa-solid fa-users',
@@ -30,6 +34,7 @@ const ICONES_CARD_INICIO = {
 };
 
 const DESCRICOES_CARD_INICIO = {
+    'painel-medico': 'Fila de atendimento e agenda do seu dia',
     dashboard: 'Resultado financeiro e indicadores gerais da clínica',
     agenda: 'Marcar, confirmar e acompanhar as consultas do dia',
     pacientes: 'Prontuários, histórico e cadastro de pacientes',
@@ -178,8 +183,8 @@ export function initUI() {
 
     if (mobileMenuToggle) {
         mobileMenuToggle.addEventListener('click', () => {
-            sidebar.classList.toggle('active');
-            mobileBackdrop.classList.toggle('active');
+            if (sidebar) sidebar.classList.toggle('active');
+            if (mobileBackdrop) mobileBackdrop.classList.toggle('active');
         });
     }
 
@@ -191,12 +196,19 @@ export function initUI() {
     document.querySelectorAll('.menu-btn').forEach(button => {
         button.addEventListener('click', (e) => {
             const target = e.currentTarget.getAttribute('data-target');
+            if (!target) return;
+
+            const secao = document.getElementById(target);
+            if (!secao) {
+                console.warn('Seção não encontrada para o target:', target);
+                return;
+            }
 
             // Trava de acesso real (não só visual): mesmo que alguém force o
             // clique/hash pra "auditoria", só o Administrador consegue trocar
             // de fato de aba - os demais perfis nem veem o botão, mas essa
             // segunda barreira evita depender só do CSS/display do menu.
-            if (target === 'auditoria' && clinicaState.sessao.perfil !== 'admin') {
+            if (target === 'auditoria' && clinicaState?.sessao?.perfil !== 'admin') {
                 showToast('Acesso restrito ao Administrador.', 'error');
                 return;
             }
@@ -204,12 +216,13 @@ export function initUI() {
             document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
             document.querySelectorAll('.menu-btn').forEach(btn => btn.classList.remove('active'));
             
-            document.getElementById(target).classList.add('active');
+            secao.classList.add('active');
             e.currentTarget.classList.add('active');
             fecharMenuMobile();
             
             // Dispara funções específicas ao trocar de aba
             if (target === 'inicio') renderizarCardsInicio();
+            if (target === 'painel-medico') renderizarPainelMedico();
             if (target === 'pacientes' || target === 'financeiro') renderizarAbas(target);
             if (target === 'estoque') verificarAlertasEstoque();
             if (target === 'dashboard') calcularDRE();
@@ -226,12 +239,14 @@ export function initUI() {
     const areaProfissionais = document.getElementById('area-profissionais');
 
     document.getElementById('btn-hub-pacientes')?.addEventListener('click', () => {
+        if (!hubPrincipal || !areaPacientes) return;
         hubPrincipal.style.display = 'none';
         areaPacientes.style.display = 'block';
     });
 
     document.getElementById('btn-hub-profissionais')?.addEventListener('click', () => {
-        if (clinicaState.sessao.perfil === 'Doutor(a)') {
+        if (!hubPrincipal || !areaProfissionais) return;
+        if (clinicaState?.sessao?.perfil === 'Doutor(a)') {
             showToast('Gestão da equipe é restrita à Administração.', 'error');
             return;
         }
@@ -242,9 +257,9 @@ export function initUI() {
     // Botões de voltar para a tela inicial dos botões grandes
     document.querySelectorAll('.btn-voltar-hub').forEach(btn => {
         btn.addEventListener('click', () => {
-            areaPacientes.style.display = 'none';
-            areaProfissionais.style.display = 'none';
-            hubPrincipal.style.display = 'flex'; // Volta a mostrar os cards
+            if (areaPacientes) areaPacientes.style.display = 'none';
+            if (areaProfissionais) areaProfissionais.style.display = 'none';
+            if (hubPrincipal) hubPrincipal.style.display = 'flex'; // Volta a mostrar os cards
             
             // Bônus: Se o prontuário estiver aberto, fecha ele ao voltar
             const pep = document.getElementById('prontuario-ativo');
@@ -260,32 +275,36 @@ export function initUI() {
     const areaPacotes = document.getElementById('area-pacotes');
 
     document.getElementById('btn-hub-livro-caixa')?.addEventListener('click', () => {
+        if (!hubFinanceiro || !areaLivroCaixa) return;
         hubFinanceiro.style.display = 'none';
         areaLivroCaixa.style.display = 'block';
     });
 
     document.getElementById('btn-hub-custos-fixos')?.addEventListener('click', () => {
+        if (!hubFinanceiro || !areaCustosFixos) return;
         hubFinanceiro.style.display = 'none';
         areaCustosFixos.style.display = 'block';
     });
 
     document.getElementById('btn-hub-procedimentos')?.addEventListener('click', () => {
+        if (!hubFinanceiro || !areaProcedimentos) return;
         hubFinanceiro.style.display = 'none';
         areaProcedimentos.style.display = 'block';
     });
 
     document.getElementById('btn-hub-pacotes')?.addEventListener('click', () => {
+        if (!hubFinanceiro || !areaPacotes) return;
         hubFinanceiro.style.display = 'none';
         areaPacotes.style.display = 'block';
     });
 
     document.querySelectorAll('.btn-voltar-hub-financeiro').forEach(btn => {
         btn.addEventListener('click', () => {
-            areaLivroCaixa.style.display = 'none';
-            areaCustosFixos.style.display = 'none';
-            areaProcedimentos.style.display = 'none';
-            areaPacotes.style.display = 'none';
-            hubFinanceiro.style.display = 'flex';
+            if (areaLivroCaixa) areaLivroCaixa.style.display = 'none';
+            if (areaCustosFixos) areaCustosFixos.style.display = 'none';
+            if (areaProcedimentos) areaProcedimentos.style.display = 'none';
+            if (areaPacotes) areaPacotes.style.display = 'none';
+            if (hubFinanceiro) hubFinanceiro.style.display = 'flex';
         });
     });
     // Lógica para fechar modais no ESC ou clique fora...

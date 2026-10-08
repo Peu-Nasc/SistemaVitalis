@@ -65,6 +65,7 @@
             </div>
             <nav class="menu">
                 <button class="menu-btn active" data-target="inicio"><i class="fa-solid fa-house"></i> Início</button>
+                <button class="menu-btn" id="btn-menu-painel-medico" data-target="painel-medico" style="display:none;"><i class="fa-solid fa-user-doctor"></i> Meu Painel</button>
                 <button class="menu-btn" data-target="dashboard"><i class="fa-solid fa-chart-line"></i> Dashboard & DRE</button>
                 <button class="menu-btn" data-target="agenda"><i class="fa-regular fa-calendar-days"></i> Agenda</button>
                 <button class="menu-btn" data-target="pacientes"><i class="fa-solid fa-users"></i> Pacientes & Prontuários</button>
@@ -108,6 +109,37 @@
                     </div>
                     <p class="top-subtitle mb-20">Escolha onde você quer trabalhar agora.</p>
                     <div id="inicio-cards" class="card-grid"></div>
+                </section>
+
+                <!-- PAINEL DO MÉDICO: só aparece no menu do perfil Doutor(a) -->
+                <section id="painel-medico" class="view-section">
+                    <div class="painel-hero">
+                        <div>
+                            <p class="painel-data" id="painel-data"></p>
+                            <h2 id="painel-saudacao"></h2>
+                            <p class="top-subtitle" id="painel-credencial"></p>
+                        </div>
+                        <div class="painel-live" title="A fila atualiza sozinha, sem precisar recarregar a página">
+                            <span class="live-dot"></span> Fila em tempo real
+                        </div>
+                    </div>
+
+                    <div id="painel-aviso-vinculo" class="painel-aviso" style="display:none;"></div>
+
+                    <div id="painel-kpis" class="card-grid"></div>
+
+                    <div class="painel-grid">
+                        <div class="painel-bloco">
+                            <h3><i class="fa-solid fa-hourglass-half"></i> Fila de Atendimento <span class="painel-contador" id="painel-fila-contador">0</span></h3>
+                            <div id="painel-fila"></div>
+                        </div>
+                        <div class="painel-bloco">
+                            <h3><i class="fa-regular fa-calendar-check"></i> Minha Agenda de Hoje</h3>
+                            <div id="painel-agenda"></div>
+                        </div>
+                    </div>
+
+                    <div id="painel-atalhos" class="painel-atalhos"></div>
                 </section>
 
                 <section id="dashboard" class="view-section">
@@ -370,6 +402,8 @@
 
                             <!-- ABA 1: NOVA EVOLUÇÃO -->
                             <div id="tab-evolucao" class="tab-content active">
+                                <!-- RESUMO RÁPIDO: última consulta à vista, sem precisar abrir o Histórico -->
+                                <div id="pep-resumo-rapido" class="pep-resumo-rapido"></div>
                                 <div class="pep-nova-evolucao">
                                     <h4>Registrar Atendimento do Dia</h4>
                                     <form id="form-evolucao" class="form-grid">

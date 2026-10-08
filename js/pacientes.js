@@ -380,6 +380,7 @@ export function initPacientes() {
                 }
                 
                 renderizarEvolucoes(paciente);
+                renderizarResumoRapidoProntuario(paciente);
                 e.target.reset(); 
                 
                 if (clinicaState.sessao.perfil === 'Doutor(a)') {
@@ -875,6 +876,7 @@ export function abrirProntuario(idPaciente) {
         }
         
         renderizarEvolucoes(paciente);
+        renderizarResumoRapidoProntuario(paciente);
         renderizarExamesSolicitados(paciente);
         renderizarImagensExames(paciente);
         renderizarResumoPacienteAtivo();
@@ -918,6 +920,48 @@ export function abrirProntuario(idPaciente) {
         document.getElementById('prontuario-ativo').style.display = 'block';
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
+}
+
+// Resumo rápido no topo da aba "Nova Evolução": mostra a última consulta
+// (data, suspeita diagnóstica e conduta) pra o médico relembrar o caso sem
+// abrir o Histórico Clínico. Tudo vem da última evolução já descriptografada.
+function extrairCampoEvolucao(texto, rotulos) {
+    const alternativas = rotulos.join('|');
+    const re = new RegExp('\\*\\*(?:' + alternativas + ')[^*]*:\\*\\*\\s*([\\s\\S]*?)(?=\\n\\s*\\*\\*|$)', 'i');
+    const m = texto.match(re);
+    const valor = m ? m[1].trim() : '';
+    return valor && valor !== 'N/A' ? valor : '';
+}
+
+function resumirTexto(texto, limite) {
+    return texto.length > limite ? texto.slice(0, limite).trimEnd() + '…' : texto;
+}
+
+function renderizarResumoRapidoProntuario(paciente) {
+    const el = document.getElementById('pep-resumo-rapido');
+    if (!el) return;
+
+    const evolucoes = paciente.evolucoes || [];
+    const ultima = evolucoes[evolucoes.length - 1];
+
+    if (!ultima) {
+        el.innerHTML = `<div class="resumo-rapido-titulo"><i class="fa-solid fa-circle-info"></i> Primeira consulta</div>
+            <p class="resumo-rapido-vazio">Este paciente ainda não tem evoluções registradas.</p>`;
+        return;
+    }
+
+    const texto = decriptar(ultima.texto);
+    const diagnostico = extrairCampoEvolucao(texto, ['Suspeita Diagnóstica', 'Suposto Diagnóstico', 'Diagnóstico']);
+    const conduta = extrairCampoEvolucao(texto, ['Conduta']);
+
+    el.innerHTML = `
+        <div class="resumo-rapido-titulo"><i class="fa-solid fa-clock-rotate-left"></i> Resumo da última consulta</div>
+        <div class="resumo-rapido-grid">
+            <div><span class="rotulo">Data</span><strong>${escapeHTML(ultima.data || '-')}</strong></div>
+            <div><span class="rotulo">Suspeita diagnóstica</span><strong>${escapeHTML(diagnostico || 'Não informada')}</strong></div>
+            <div><span class="rotulo">Conduta registrada</span><strong>${escapeHTML(conduta ? resumirTexto(conduta, 140) : 'Não informada')}</strong></div>
+            <div><span class="rotulo">Atendimentos registrados</span><strong>${evolucoes.length}</strong></div>
+        </div>`;
 }
 
 function renderizarEvolucoes(paciente) {

@@ -26,11 +26,34 @@ export function showToast(message, type = 'success') {
     toast.appendChild(span);
 
     container.appendChild(toast);
-    setTimeout(() => toast.remove(), 4500);
+
+    // Tempo na tela: quanto maior a mensagem, mais tempo; avisos e erros
+    // ficam mais, porque a pessoa precisa ler com calma.
+    // (ajuste os números aqui para deixar mais rápido ou mais lento)
+    const base = { success: 5000, info: 6000, warning: 8000, error: 9000 }[type] || 5000;
+    const duracao = Math.min(base + message.length * 30, 15000);
+
+    let temporizador = null;
+    const fechar = () => {
+        clearTimeout(temporizador);
+        toast.classList.add('saindo');
+        setTimeout(() => toast.remove(), 300);
+    };
+    const agendar = (ms) => {
+        clearTimeout(temporizador);
+        temporizador = setTimeout(fechar, ms);
+    };
+
+    agendar(duracao);
+    // Passar o mouse por cima pausa a contagem; clicar fecha na hora
+    toast.addEventListener('mouseenter', () => clearTimeout(temporizador));
+    toast.addEventListener('mouseleave', () => agendar(2500));
+    toast.addEventListener('click', fechar);
 }
 
 export function escapeHTML(str) {
-    return str.replace(/[&<>'"]/g, tag => ({
+    // Aceita número, null ou undefined sem quebrar a tela (antes só aceitava texto)
+    return String(str ?? '').replace(/[&<>'"]/g, tag => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
     }[tag] || tag));
 }

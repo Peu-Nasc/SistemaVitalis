@@ -80,6 +80,70 @@ async function verificarAcessoPorIp(clinicaId, perfil) {
 }
 
 
+// ========================================================
+// ENCERRAMENTO AUTOMÁTICO POR INATIVIDADE
+// Protege o prontuário quando alguém esquece o computador aberto. Qualquer
+// movimento de mouse, tecla, clique, rolagem ou toque reinicia a contagem.
+// O Doutor(a) tem um prazo maior porque costuma deixar o Meu Painel aberto
+// acompanhando a fila de pacientes, sem mexer na tela.
+// ========================================================
+const MINUTOS_INATIVIDADE = { admin: 30, recepcao: 30, 'Doutor(a)': 60 };
+const MINUTOS_INATIVIDADE_PADRAO = 30;
+const AVISO_ANTES_DO_ENCERRAMENTO_MS = 60 * 1000;
+
+let controleInatividadeAtivo = false;
+let temporizadorAvisoInatividade = null;
+let temporizadorEncerramentoInatividade = null;
+
+async function encerrarSessaoPorInatividade() {
+    try {
+        await registrarAuditoria({
+            acao: 'Logout',
+            modulo: 'Sistema',
+            descricao: 'Sessão encerrada automaticamente por inatividade'
+        });
+        await signOut(auth);
+    } catch (error) {
+        console.error("Erro ao encerrar sessão por inatividade:", error);
+    } finally {
+        // Recarrega para limpar a memória (clinicaState) e voltar ao login
+        window.location.reload();
+    }
+}
+
+function reiniciarContagemDeInatividade() {
+    const minutos = MINUTOS_INATIVIDADE[clinicaState.sessao.perfil] || MINUTOS_INATIVIDADE_PADRAO;
+    const total = minutos * 60 * 1000;
+
+    clearTimeout(temporizadorAvisoInatividade);
+    clearTimeout(temporizadorEncerramentoInatividade);
+
+    temporizadorAvisoInatividade = setTimeout(() => {
+        showToast('Sua sessão será encerrada em 1 minuto por inatividade. Mexa o mouse ou toque na tela para continuar.', 'warning');
+    }, total - AVISO_ANTES_DO_ENCERRAMENTO_MS);
+
+    temporizadorEncerramentoInatividade = setTimeout(encerrarSessaoPorInatividade, total);
+}
+
+function iniciarControleDeInatividade() {
+    if (controleInatividadeAtivo) return;
+    controleInatividadeAtivo = true;
+
+    let ultimoRegistro = 0;
+    const registrarAtividade = () => {
+        const agora = Date.now();
+        if (agora - ultimoRegistro < 1000) return; // não reinicia a cada pixel do mouse
+        ultimoRegistro = agora;
+        reiniciarContagemDeInatividade();
+    };
+
+    ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click'].forEach(evento => {
+        document.addEventListener(evento, registrarAtividade, { passive: true, capture: true });
+    });
+
+    reiniciarContagemDeInatividade();
+}
+
 export function initAuth() {
     const formLogin = document.getElementById('form-login');
     const loginScreen = document.getElementById('login-screen');
@@ -325,6 +389,9 @@ export function initAuth() {
 
 // === MOTOR DE CONTROLE DE ACESSO (RBAC) ===
 function aplicarPermissoesDeTela() {
+    // Perfil já definido aqui: começa a contar a inatividade da sessão
+    iniciarControleDeInatividade();
+
     const perfil = clinicaState.sessao.perfil;
     const userNameEl = document.getElementById('profile-user-name');
     

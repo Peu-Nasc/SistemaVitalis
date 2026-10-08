@@ -2702,7 +2702,20 @@ body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; 
 table tbody tr { transition: background-color .15s ease; }
 table tbody tr:hover { background-color: #f6f9fc; }
 
-.toast { box-shadow: 0 8px 24px rgba(15, 23, 42, .18); animation: toastEntrada .25s ease-out; }
+.toast {
+    box-shadow: 0 8px 24px rgba(15, 23, 42, .18);
+    /* O estado normal do alerta é VISÍVEL (transform: none). Antes ele herdava
+       translateX(120%) da regra base e, terminada a animação de entrada,
+       voltava pra fora da tela - por isso sumia em menos de 1 segundo. */
+    transform: none;
+    animation: toastEntrada .25s ease-out;
+    cursor: pointer;
+    max-width: min(420px, calc(100vw - 40px));
+    transition: opacity .3s ease, transform .3s ease;
+}
+.toast.saindo { opacity: 0; transform: translateX(24px); }
+.toast.warning { border-left-color: #ffc107; }
+.toast.warning i { color: #e0a800; }
 @keyframes toastEntrada { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
 
 .login-container { box-shadow: 0 30px 70px rgba(15, 23, 42, .35); }
@@ -2876,3 +2889,6 @@ table tbody tr:hover { background-color: #f6f9fc; }
 .doc-dica { display: block; margin-top: 6px; color: #8a6d00; background: #fffbea; border: 1px solid #ffe69c; border-radius: var(--radius-sm); padding: 8px 10px; }
 
 .print-evo { margin-bottom: 6px; font-size: .85rem; }
+
+.pep-concluir label { display: flex; flex-direction: row; align-items: center; gap: 10px; font-size: .9rem; font-weight: 500; color: var(--text-main); cursor: pointer; }
+.pep-concluir input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary-color); flex-shrink: 0; }

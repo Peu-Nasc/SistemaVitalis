@@ -4,7 +4,7 @@ import { atualizarAgenda } from './agenda.js';
 import { criarNotificacao } from './notificacoes.js';
 
 import { db, storage } from './firebase.js';
-import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, where } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js';
+import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, where, arrayUnion } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-storage.js';
 import { registrarAuditoria } from './auditoria.js';
 import { initProntuarioExtras, aoAbrirProntuario, aoFecharProntuario, aoSalvarEvolucao, montarTextoEvolucao, lerSinaisVitais, validarSinaisVitais, calcularIdade } from './prontuario.js';
@@ -336,6 +336,7 @@ export function initPacientes() {
                 return;
             }
             const sinaisVitais = lerSinaisVitais();
+            const concluirConsulta = Boolean(document.getElementById('pep-concluir-consulta')?.checked);
             const textoProntuario = montarTextoEvolucao();
 
             const textoCriptografado = encriptar(textoProntuario);
@@ -364,7 +365,9 @@ export function initPacientes() {
             // grava no paciente (fora do texto criptografado, pra poder
             // usar direto num painel de "Revisões Pendentes" no Dashboard)
             const diasRetornoInput = document.getElementById('pep-retorno-dias').value;
-            const dadosAtualizados = { evolucoes: paciente.evolucoes };
+            // arrayUnion ACRESCENTA a evolução no banco em vez de reescrever a lista
+            // inteira: se duas telas salvarem ao mesmo tempo, nenhuma evolução se perde.
+            const dadosAtualizados = { evolucoes: arrayUnion(novaEvolucao) };
 
             if (diasRetornoInput) {
                 const dataRetorno = new Date();
@@ -401,6 +404,10 @@ export function initPacientes() {
                 }
                 aoSalvarEvolucao(paciente);
                 showToast('Evolução salva no Prontuário com sucesso!');
+                if (concluirConsulta) {
+                    const concluida = await concluirConsultaDeHoje(paciente, profissional);
+                    if (concluida) showToast('Consulta marcada como concluída na agenda.', 'success');
+                }
                 await registrarAuditoria({ acao: 'Criação', modulo: 'Prontuário', descricao: `Evolução registrada para ${paciente.nome} por ${profissional.nome}` });
             } catch (error) {
                 console.error("Erro ao salvar evolução: ", error);
@@ -849,6 +856,70 @@ async function uploadAnexo(file, subpasta) {
 }
 
 // opcoes.aba: id da aba a abrir (ex: 'tab-evolucao' quando vem do "Atender" da fila)
+// Data local YYYY-MM-DD (mesmo formato da Agenda; toISOString() daria o dia
+// seguinte à noite no Brasil, por causa do UTC)
+function dataLocalISO(d = new Date()) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Ao assinar a evolução, conclui na agenda a consulta de HOJE deste paciente
+// com este profissional (a mesma regra do botão "Concluído" da Agenda: se
+// houver valor a cobrar e ainda não estiver pago, fica pendente e a Recepção
+// recebe o aviso de pagamento). Nunca derruba a evolução: se falhar, só avisa.
+async function concluirConsultaDeHoje(paciente, profissional) {
+    try {
+        const snap = await getDocs(query(
+            collection(db, "agendamentos"),
+            where("clinicaId", "==", clinicaState.sessao.clinicaId),
+            where("data", "==", dataLocalISO())
+        ));
+
+        const ELEGIVEIS = ['agendado', 'confirmado', 'aguardando_atendimento'];
+        const candidatos = snap.docs
+            .map(d => ({ ...d.data(), id: String(d.id) }))
+            .filter(a => String(a.pacId) === String(paciente.id)
+                && String(a.profId) === String(profissional.id)
+                && ELEGIVEIS.includes(a.status || 'agendado'))
+            .sort((x, y) =>
+                (x.status === 'aguardando_atendimento' ? 0 : 1) - (y.status === 'aguardando_atendimento' ? 0 : 1)
+                || (x.hora || '').localeCompare(y.hora || ''));
+
+        const ag = candidatos[0];
+        if (!ag) return false; // paciente sem consulta marcada hoje com este profissional
+
+        const valor = Number(ag.valorAtendimento || 0);
+        const jaPaga = ag.statusPagamento === 'pago';
+        const novos = {
+            status: 'concluido',
+            statusPagamento: valor > 0 ? (jaPaga ? 'pago' : 'pendente') : 'nao_aplica'
+        };
+
+        await updateDoc(doc(db, "agendamentos", ag.id), novos);
+
+        const idx = clinicaState.agenda.agendamentos.findIndex(a => String(a.id) === ag.id);
+        if (idx >= 0) clinicaState.agenda.agendamentos[idx] = { ...clinicaState.agenda.agendamentos[idx], ...novos };
+
+        if (valor > 0 && !jaPaga) {
+            await criarNotificacao({
+                tipo: 'pagamento_pendente',
+                titulo: 'Confirmar pagamento',
+                mensagem: `A consulta de ${ag.pacNome} (${ag.procedimentoNome || ag.tipo || 'Consulta'}) foi concluída.`,
+                pacienteId: ag.pacId,
+                pacienteNome: ag.pacNome,
+                agendamentoId: ag.id
+            });
+        }
+
+        await registrarAuditoria({ acao: 'Edição', modulo: 'Agenda', descricao: `Consulta concluída pelo prontuário: ${ag.pacNome} (${ag.hora || '--:--'})` });
+        atualizarAgenda();
+        return true;
+    } catch (error) {
+        console.error("Erro ao concluir a consulta na agenda: ", error);
+        showToast('A evolução foi salva, mas não foi possível concluir a consulta na agenda. Conclua pela Agenda.', 'warning');
+        return false;
+    }
+}
+
 export function abrirProntuario(idPaciente, opcoes = {}) {
     // Trava real (não só visual): apenas médicos acessam prontuário de jeito
     // nenhum, mesmo que o botão apareça por algum outro caminho.

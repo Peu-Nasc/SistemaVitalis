@@ -7,6 +7,7 @@ import { db, storage } from './firebase.js';
 import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, where } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-storage.js';
 import { registrarAuditoria } from './auditoria.js';
+import { initProntuarioExtras, aoAbrirProntuario, aoFecharProntuario, aoSalvarEvolucao, montarTextoEvolucao, lerSinaisVitais, validarSinaisVitais, calcularIdade } from './prontuario.js';
 
 let pacienteAtivoId = null;
 let pacienteEmEdicaoId = null; 
@@ -36,6 +37,9 @@ export function initPacientes() {
     // A4 ou Prontuário A5, ver btn-imprimir-receita/btn-imprimir-pep) assim
     // que a caixa de diálogo de impressão do navegador fecha.
     window.addEventListener('afterprint', () => document.body.removeAttribute('data-impressao'));
+
+    // Abas novas do prontuário (sinais vitais, antecedentes, rascunho, CID...)
+    initProntuarioExtras();
 
     document.getElementById('btn-novo-paciente').addEventListener('click', () => {
         // Trava real (não só visual): o botão já fica oculto pro Doutor(a)
@@ -265,6 +269,7 @@ export function initPacientes() {
         document.getElementById('prontuario-ativo').style.display = 'none';
         const listaContainer = document.getElementById('lista-pacientes-container');
         if (listaContainer) listaContainer.style.display = 'block';
+        aoFecharProntuario();
         pacienteAtivoId = null;
         renderizarResumoPacienteAtivo();
     });
@@ -323,10 +328,15 @@ export function initPacientes() {
         const btnSalvar = e.target.querySelector('button[type="submit"]');
 
         await comEstadoDeCarregamento(btnSalvar, 'Assinando...', async () => {
-            const textoProntuario = `**Anamnese:** ${document.getElementById('pep-anamnese').value}
-    **Exame Físico:** ${document.getElementById('pep-exame-fisico').value}
-    **Suspeita Diagnóstica:** ${document.getElementById('pep-diagnostico').value || 'N/A'}
-    **Conduta e Prescrição:** ${document.getElementById('pep-prescricao').value}`.trim(); 
+            // Sinais vitais precisam fazer sentido antes de assinar (ex: PA
+            // sistólica maior que a diastólica, saturação até 100%)
+            const erroSinais = validarSinaisVitais();
+            if (erroSinais) {
+                showToast(erroSinais, 'warning');
+                return;
+            }
+            const sinaisVitais = lerSinaisVitais();
+            const textoProntuario = montarTextoEvolucao();
 
             const textoCriptografado = encriptar(textoProntuario);
 
@@ -340,9 +350,12 @@ export function initPacientes() {
 
             const novaEvolucao = {
                 data: new Date().toLocaleString('pt-BR'),
+                dataISO: new Date().toISOString(),
                 texto: textoCriptografado,
+                profissionalId: String(profissional.id),
                 assinatura: `Assinado digitalmente por ${profissional.nome} | ${profissional.conselho}: ${profissional.registro}`
             };
+            if (sinaisVitais) novaEvolucao.vitaisCripto = encriptar(JSON.stringify(sinaisVitais));
 
             if (!paciente.evolucoes) paciente.evolucoes = [];
             paciente.evolucoes.push(novaEvolucao);
@@ -386,6 +399,7 @@ export function initPacientes() {
                 if (clinicaState.sessao.perfil === 'Doutor(a)') {
                     document.getElementById('pep-profissional').value = profId;
                 }
+                aoSalvarEvolucao(paciente);
                 showToast('Evolução salva no Prontuário com sucesso!');
                 await registrarAuditoria({ acao: 'Criação', modulo: 'Prontuário', descricao: `Evolução registrada para ${paciente.nome} por ${profissional.nome}` });
             } catch (error) {
@@ -834,7 +848,8 @@ async function uploadAnexo(file, subpasta) {
     return await getDownloadURL(arquivoRef);
 }
 
-export function abrirProntuario(idPaciente) {
+// opcoes.aba: id da aba a abrir (ex: 'tab-evolucao' quando vem do "Atender" da fila)
+export function abrirProntuario(idPaciente, opcoes = {}) {
     // Trava real (não só visual): apenas médicos acessam prontuário de jeito
     // nenhum, mesmo que o botão apareça por algum outro caminho.
     if (clinicaState.sessao.perfil !== 'Doutor(a)') {
@@ -880,6 +895,7 @@ export function abrirProntuario(idPaciente) {
         renderizarExamesSolicitados(paciente);
         renderizarImagensExames(paciente);
         renderizarResumoPacienteAtivo();
+        aoAbrirProntuario(paciente, opcoes.aba);
 
         // Reseta o gerador de documentos ao trocar de paciente, para não
         // arrastar um texto de encaminhamento gerado para outra pessoa
@@ -951,14 +967,14 @@ function renderizarResumoRapidoProntuario(paciente) {
     }
 
     const texto = decriptar(ultima.texto);
-    const diagnostico = extrairCampoEvolucao(texto, ['Suspeita Diagnóstica', 'Suposto Diagnóstico', 'Diagnóstico']);
+    const diagnostico = extrairCampoEvolucao(texto, ['Hipótese Diagnóstica', 'Suspeita Diagnóstica', 'Suposto Diagnóstico', 'Diagnóstico']);
     const conduta = extrairCampoEvolucao(texto, ['Conduta']);
 
     el.innerHTML = `
         <div class="resumo-rapido-titulo"><i class="fa-solid fa-clock-rotate-left"></i> Resumo da última consulta</div>
         <div class="resumo-rapido-grid">
             <div><span class="rotulo">Data</span><strong>${escapeHTML(ultima.data || '-')}</strong></div>
-            <div><span class="rotulo">Suspeita diagnóstica</span><strong>${escapeHTML(diagnostico || 'Não informada')}</strong></div>
+            <div><span class="rotulo">Hipótese diagnóstica</span><strong>${escapeHTML(diagnostico || 'Não informada')}</strong></div>
             <div><span class="rotulo">Conduta registrada</span><strong>${escapeHTML(conduta ? resumirTexto(conduta, 140) : 'Não informada')}</strong></div>
             <div><span class="rotulo">Atendimentos registrados</span><strong>${evolucoes.length}</strong></div>
         </div>`;
@@ -1046,7 +1062,8 @@ export function renderizarResumoPacienteAtivo() {
     const elAlergias = document.getElementById('pep-alergias');
 
     if (elNome) elNome.textContent = paciente.nome;
-    const dataNasc = paciente.nascimento ? paciente.nascimento.split('-').reverse().join('/') : 'Não inf.';
+    const idade = calcularIdade(paciente.nascimento);
+    const dataNasc = paciente.nascimento ? paciente.nascimento.split('-').reverse().join('/') + (idade ? ` (${idade})` : '') : 'Não inf.';
     if (elDados) elDados.textContent = `CPF: ${paciente.cpf} | Nasc: ${dataNasc} | Tel: ${paciente.telefone || 'Não inf.'}`;
     
     if (elConvenio) elConvenio.innerHTML = `<i class="fa-solid fa-address-card"></i> ${escapeHTML(paciente.convenio || 'Particular')}`;

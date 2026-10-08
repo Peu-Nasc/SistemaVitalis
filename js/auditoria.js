@@ -67,7 +67,8 @@ const BADGE_ACAO = {
     'Edição': 'warning',
     'Exclusão': 'danger',
     'Login': 'primary',
-    'Logout': 'neutral'
+    'Logout': 'neutral',
+    'Acesso': 'neutral'
 };
 
 export function atualizarTabelaAuditoria(filtro = '', modulo = 'todos', acao = 'todas') {

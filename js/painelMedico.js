@@ -149,7 +149,7 @@ function itemFila(a, posicao) {
                 <strong>${escapeHTML(a.pacNome || 'Paciente')}</strong>
                 <small>Horário ${escapeHTML(a.hora || '--:--')} · ${escapeHTML(tipo)}${sala}</small>
             </div>
-            ${a.pacId ? `<button type="button" class="btn-primary btn-painel-abrir" data-pac-id="${escapeHTML(String(a.pacId))}"><i class="fa-solid fa-stethoscope"></i> Atender</button>` : ''}
+            ${a.pacId ? `<button type="button" class="btn-primary btn-painel-abrir" data-aba="tab-evolucao" data-pac-id="${escapeHTML(String(a.pacId))}"><i class="fa-solid fa-stethoscope"></i> Atender</button>` : ''}
         </div>`;
 }
 
@@ -258,7 +258,8 @@ export function initPainelMedico() {
     secao.addEventListener('click', (e) => {
         const btnAbrir = e.target.closest('.btn-painel-abrir');
         if (btnAbrir) {
-            abrirProntuario(btnAbrir.getAttribute('data-pac-id'));
+            // "Atender" (fila) já abre direto na aba de atendimento
+            abrirProntuario(btnAbrir.getAttribute('data-pac-id'), { aba: btnAbrir.getAttribute('data-aba') || undefined });
             return;
         }
         const atalho = e.target.closest('.painel-atalho');

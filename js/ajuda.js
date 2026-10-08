@@ -36,6 +36,33 @@ const TOPICOS_AJUDA = [
         ]
     },
     {
+        modulo: 'Prontuário',
+        icone: 'fa-solid fa-notes-medical',
+        perfis: ['Doutor(a)'],
+        perguntas: [
+            {
+                titulo: 'Como o prontuário está organizado?',
+                resposta: 'Resumo (visão geral e últimos sinais vitais), Atendimento (anamnese, sinais vitais, exame físico, hipótese diagnóstica com CID-10 e conduta), Histórico Clínico (todas as evoluções assinadas, com busca), Antecedentes (comorbidades, uso contínuo, alergias, cirurgias, histórico familiar e hábitos), Exames e Documentos e Receituário. A faixa no topo mostra alergias, comorbidades e medicamentos de uso contínuo em todas as abas.'
+            },
+            {
+                titulo: 'Perdi a internet ou fechei a página no meio da evolução. Perdi o que escrevi?',
+                resposta: 'Não necessariamente. Enquanto você digita, o sistema guarda um rascunho criptografado nesta aba do navegador e o restaura ao reabrir o mesmo paciente. Ele some quando a evolução é assinada ou quando o navegador é fechado.'
+            },
+            {
+                titulo: 'Posso editar ou apagar uma evolução já assinada?',
+                resposta: 'Não. Evolução assinada fica protegida para manter a integridade do prontuário. Se precisar corrigir algo, registre uma nova evolução complementando ou retificando a informação anterior.'
+            },
+            {
+                titulo: 'O acesso ao prontuário fica registrado?',
+                resposta: 'Sim. Cada abertura e cada impressão do prontuário entram na Auditoria (quem acessou, qual paciente e quando), como medida de rastreabilidade e de proteção dos dados do paciente.'
+            },
+            {
+                titulo: 'Como imprimo o prontuário completo?',
+                resposta: 'No topo do prontuário, use o botão "Completo". O botão com ícone de impressora imprime só o resumo da última evolução.'
+            }
+        ]
+    },
+    {
         modulo: 'Dashboard & DRE',
         icone: 'fa-solid fa-chart-line',
         perfis: ['admin'],

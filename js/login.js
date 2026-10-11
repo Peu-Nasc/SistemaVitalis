@@ -17,6 +17,8 @@ import { escutarNotificacoes } from './notificacoes.js';
 import { carregarEstoque } from './estoque.js';
 import { carregarProcedimentos } from './procedimentos.js';
 import { carregarPacotes } from './pacotes.js';
+import { carregarModelosDocumentos, aplicarPermissaoModelos } from './modelosDocumentos.js';
+import { liberarTravasDoAtendimento } from './atendimento.js';
 import { carregarAuditoria, registrarAuditoria } from './auditoria.js';
 import { atualizarAjudaPorPerfil } from './ajuda.js';
 import { renderizarCardsInicio } from './NavMenu.js';
@@ -97,6 +99,7 @@ let temporizadorEncerramentoInatividade = null;
 
 async function encerrarSessaoPorInatividade() {
     try {
+        await liberarTravasDoAtendimento();
         await registrarAuditoria({
             acao: 'Logout',
             modulo: 'Sistema',
@@ -200,6 +203,12 @@ export function initAuth() {
                 }
                 await carregarProcedimentos();
                 await carregarPacotes();
+                // Modelos de documentos (receituários, laudos...): só quem
+                // usa o prontuário precisa deles
+                if (perfilLogado === 'admin' || perfilLogado === 'Doutor(a)') {
+                    aplicarPermissaoModelos();
+                    await carregarModelosDocumentos();
+                }
 
                 // Painel do médico: depende de sessão + profissionais já
                 // carregados (vínculo login -> cadastro da Equipe). Ao
@@ -367,6 +376,7 @@ export function initAuth() {
             try {
                 // Registra a saída ANTES do signOut - depois disso a sessão
                 // (nome/perfil/clinicaId) é zerada pelo reload da página.
+                await liberarTravasDoAtendimento();
                 await registrarAuditoria({
                     acao: 'Logout',
                     modulo: 'Sistema',

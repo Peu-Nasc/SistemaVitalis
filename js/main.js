@@ -11,6 +11,9 @@ import { initNotificacoes } from './notificacoes.js';
 import { initAuditoria } from './auditoria.js';
 import { initAjuda } from './ajuda.js';
 import { initPainelMedico } from './painelMedico.js';
+import { initModelosDocumentos } from './modelosDocumentos.js';
+import { initEditorDocumento } from './editorDocumento.js';
+import { initAtendimento } from './atendimento.js';
 
 // ========================================================
 // TRAVA ANTI-SPAM (PREVENÇÃO DE MÚLTIPLAS REQUISIÇÕES)
@@ -25,7 +28,7 @@ const ultimosCliquesPorBotao = new WeakMap();
 document.addEventListener('click', (e) => {
     // Verifica se o que foi clicado é um botão ou um ícone dentro dele
     const btn = e.target.closest('button');
-    if (btn) {
+    if (btn && !btn.hasAttribute('data-sem-cooldown')) {
         const agora = Date.now();
         const ultimoCliqueNesseBotao = ultimosCliquesPorBotao.get(btn) || 0;
         // Se o último clique NESSE MESMO botão foi há menos de 800ms, bloqueia!
@@ -42,6 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initAuth();
 
     initMasks();
+    initEditorDocumento();
     initUI();
     initConfirmacao();
     initFooterInstitucional();
@@ -56,6 +60,8 @@ document.addEventListener('DOMContentLoaded', () => {
     initAuditoria();
     initAjuda();
     initPainelMedico();
+    initModelosDocumentos();
+    initAtendimento();
 
     calcularDRE();
     atualizarTabelaFinanceiro();

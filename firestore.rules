@@ -35,10 +35,29 @@ service cloud.firestore {
 
     // Campos do prontuário: só o(a) Doutor(a) (e o admin) mexem neles
     function camposClinicos() {
-      return ['evolucoes', 'examesSolicitados', 'imagensExames', 'proximoRetorno'];
+      return ['evolucoes', 'examesSolicitados', 'imagensExames', 'proximoRetorno',
+              'atendimentoEmAndamento', 'atendimentoAte'];
     }
     function camposAlterados() {
       return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    // Paciente com atendimento em andamento (cronômetro iniciado pelo médico).
+    // Vale enquanto atendimentoAte for futuro - se o médico fechar o sistema
+    // sem encerrar, a trava vence sozinha.
+    function emAtendimento() {
+      return resource.data.get('atendimentoAte', null) != null
+        && resource.data.atendimentoAte > request.time;
+    }
+
+    // Evolução assinada não se altera nem se apaga: a lista só pode CRESCER
+    // (as evoluções que já existiam precisam continuar idênticas, na mesma ordem).
+    function evolucoesSoCrescem() {
+      return !('evolucoes' in camposAlterados())
+        || (request.resource.data.evolucoes is list
+            && request.resource.data.evolucoes.size() >= resource.data.get('evolucoes', []).size()
+            && request.resource.data.evolucoes[0:resource.data.get('evolucoes', []).size()]
+               == resource.data.get('evolucoes', []));
     }
 
     // ---------- Usuários e clínicas: somente leitura pelo app ----------
@@ -60,12 +79,12 @@ service cloud.firestore {
     match /pacientes/{id} {
       allow read:   if daMinhaClinica();
       allow create: if criaNaMinhaClinica() && (ehAdmin() || ehRecepcao());
-      allow update: if daMinhaClinica() && mantemClinica() && (
+      allow update: if daMinhaClinica() && mantemClinica() && evolucoesSoCrescem() && (
           ehAdmin()
-          || (ehRecepcao() && !camposAlterados().hasAny(camposClinicos()))
+          || (ehRecepcao() && !camposAlterados().hasAny(camposClinicos()) && !emAtendimento())
           || (ehDoutor()   &&  camposAlterados().hasOnly(camposClinicos()))
       );
-      allow delete: if daMinhaClinica() && (ehAdmin() || ehRecepcao());
+      allow delete: if daMinhaClinica() && (ehAdmin() || (ehRecepcao() && !emAtendimento()));
     }
 
     // ---------- Equipe ----------
@@ -127,6 +146,35 @@ service cloud.firestore {
       allow create: if criaNaMinhaClinica() && ehAdmin();
       allow update: if daMinhaClinica() && mantemClinica() && ehAdmin();
       allow delete: if daMinhaClinica() && ehAdmin();
+    }
+
+    // ---------- Modelos de documentos (receituários, laudos, relatórios) ----------
+    // Admin e Doutor(a) leem e criam, sempre dentro da própria clínica.
+    // Editar/excluir: o autor do modelo ou o admin. O autor (criadoPorEmail)
+    // precisa bater com o e-mail do login e nunca pode ser trocado depois.
+    // Recepção não tem acesso (não usa o prontuário).
+    function ehAutorDoModelo() {
+      return resource.data.criadoPorEmail.lower() == request.auth.token.email.lower();
+    }
+    function modeloValido() {
+      return request.resource.data.titulo is string
+        && request.resource.data.titulo.size() > 0
+        && request.resource.data.titulo.size() <= 120
+        && request.resource.data.texto is string
+        && request.resource.data.texto.size() <= 50000
+        && request.resource.data.get('html', '').size() <= 100000;
+    }
+
+    match /modelos_documentos/{id} {
+      allow read:   if daMinhaClinica() && (ehAdmin() || ehDoutor());
+      allow create: if criaNaMinhaClinica() && (ehAdmin() || ehDoutor())
+        && request.resource.data.criadoPorEmail.lower() == request.auth.token.email.lower()
+        && modeloValido();
+      allow update: if daMinhaClinica() && mantemClinica()
+        && (ehAdmin() || (ehDoutor() && ehAutorDoModelo()))
+        && request.resource.data.criadoPorEmail == resource.data.criadoPorEmail
+        && modeloValido();
+      allow delete: if daMinhaClinica() && (ehAdmin() || (ehDoutor() && ehAutorDoModelo()));
     }
 
     // ---------- Estoque (menu oculto para Doutor(a)) ----------

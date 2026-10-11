@@ -7,6 +7,9 @@ import { db, storage } from './firebase.js';
 import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, where, arrayUnion } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-storage.js';
 import { registrarAuditoria } from './auditoria.js';
+import { resetarSeletorModelo } from './modelosDocumentos.js';
+import { obterHTMLDocumento, tituloDoDocumento } from './editorDocumento.js';
+import { aoAbrirProntuarioAtendimento, aoFecharProntuarioAtendimento, lerCronometro, camposParaLiberarTrava, aoSalvarAtendimento, pacienteEmAtendimentoAgora, descreverTrava, formatarDuracaoCurta } from './atendimento.js';
 import { initProntuarioExtras, aoAbrirProntuario, aoFecharProntuario, aoSalvarEvolucao, montarTextoEvolucao, lerSinaisVitais, validarSinaisVitais, calcularIdade } from './prontuario.js';
 
 let pacienteAtivoId = null;
@@ -270,6 +273,7 @@ export function initPacientes() {
         const listaContainer = document.getElementById('lista-pacientes-container');
         if (listaContainer) listaContainer.style.display = 'block';
         aoFecharProntuario();
+        aoFecharProntuarioAtendimento();
         pacienteAtivoId = null;
         renderizarResumoPacienteAtivo();
     });
@@ -358,6 +362,10 @@ export function initPacientes() {
             };
             if (sinaisVitais) novaEvolucao.vitaisCripto = encriptar(JSON.stringify(sinaisVitais));
 
+            // Cronômetro de atendimento: se foi iniciado, grava início e duração na evolução
+            const cronometro = lerCronometro(paciente.id);
+            if (cronometro) Object.assign(novaEvolucao, cronometro);
+
             if (!paciente.evolucoes) paciente.evolucoes = [];
             paciente.evolucoes.push(novaEvolucao);
 
@@ -367,7 +375,7 @@ export function initPacientes() {
             const diasRetornoInput = document.getElementById('pep-retorno-dias').value;
             // arrayUnion ACRESCENTA a evolução no banco em vez de reescrever a lista
             // inteira: se duas telas salvarem ao mesmo tempo, nenhuma evolução se perde.
-            const dadosAtualizados = { evolucoes: arrayUnion(novaEvolucao) };
+            const dadosAtualizados = { evolucoes: arrayUnion(novaEvolucao), ...camposParaLiberarTrava(paciente.id) };
 
             if (diasRetornoInput) {
                 const dataRetorno = new Date();
@@ -403,6 +411,7 @@ export function initPacientes() {
                     document.getElementById('pep-profissional').value = profId;
                 }
                 aoSalvarEvolucao(paciente);
+                aoSalvarAtendimento(paciente);
                 showToast('Evolução salva no Prontuário com sucesso!');
                 if (concluirConsulta) {
                     const concluida = await concluirConsultaDeHoje(paciente, profissional);
@@ -620,6 +629,23 @@ export function initPacientes() {
                 return;
             }
 
+            // Paciente em atendimento (cronômetro rodando): a recepção não edita nem
+            // exclui; o admin pode, mas com aviso. As regras do Firestore reforçam.
+            if (btnEditar || btnExcluir) {
+                const idAlvo = (btnEditar || btnExcluir).getAttribute('data-id');
+                const trava = await pacienteEmAtendimentoAgora(idAlvo);
+                if (trava) {
+                    if (clinicaState.sessao.perfil !== 'admin') {
+                        showToast(`Paciente em atendimento com ${descreverTrava(trava)}. Edição bloqueada até o fim da consulta.`, 'warning');
+                        return;
+                    }
+                    const seguir = await confirmarAcao(`Este paciente está em atendimento com ${descreverTrava(trava)}. Continuar mesmo assim?`, {
+                        titulo: 'Paciente em atendimento', textoConfirmar: 'Continuar', perigoso: false
+                    });
+                    if (!seguir) return;
+                }
+            }
+
             if (btnExcluir) {
                 const idPac = btnExcluir.getAttribute('data-id');
                 if (await confirmarAcao('Deseja excluir permanentemente este paciente? Todo o histórico de prontuário será perdido.', { titulo: 'Excluir paciente', textoConfirmar: 'Excluir' })) {
@@ -738,9 +764,10 @@ export function initPacientes() {
     if (btnImprimir) {
         btnImprimir.addEventListener('click', async () => {
             const textoReceita = document.getElementById('texto-receita').value;
-            const tipoDoc = document.getElementById('tipo-documento-impressao').value;
+            const tipoDoc = tituloDoDocumento();
             
             if(!textoReceita.trim()) return showToast('Digite o conteúdo do documento.', 'warning');
+            if (!tipoDoc) return showToast('Informe o título do documento.', 'warning');
 
             const paciente = clinicaState.pacientes.find(p => String(p.id) === String(pacienteAtivoId));
             const profId = document.getElementById('pep-profissional').value;
@@ -753,7 +780,7 @@ export function initPacientes() {
             document.getElementById('print-nasc-paciente').textContent = paciente.nascimento ? paciente.nascimento.split('-').reverse().join('/') : 'Não inf.';
             document.getElementById('print-cpf-paciente').textContent = paciente.cpf || 'Não inf.';
             document.getElementById('print-data').textContent = new Date().toLocaleDateString('pt-BR');
-            document.getElementById('print-conteudo-receita').textContent = textoReceita;
+            document.getElementById('print-conteudo-receita').innerHTML = obterHTMLDocumento();
             document.getElementById('print-medico-nome').textContent = profissional.nome;
             document.getElementById('print-medico-registro').textContent = `${profissional.conselho}: ${profissional.registro}`;
 
@@ -967,6 +994,7 @@ export function abrirProntuario(idPaciente, opcoes = {}) {
         renderizarImagensExames(paciente);
         renderizarResumoPacienteAtivo();
         aoAbrirProntuario(paciente, opcoes.aba);
+        aoAbrirProntuarioAtendimento(paciente);
 
         // Reseta o gerador de documentos ao trocar de paciente, para não
         // arrastar um texto de encaminhamento gerado para outra pessoa
@@ -974,6 +1002,7 @@ export function abrirProntuario(idPaciente, opcoes = {}) {
         if (grupoEspecialidade) grupoEspecialidade.style.display = 'none';
         const textoReceita = document.getElementById('texto-receita');
         if (textoReceita) textoReceita.value = '';
+        resetarSeletorModelo(paciente);
 
         // Reseta o formulário de anexo de exame/imagem ao trocar de paciente,
         // pra não arrastar arquivo/descrição selecionados para outra pessoa
@@ -1066,6 +1095,7 @@ function renderizarEvolucoes(paciente) {
             <summary class="timeline-meta">
                 <span><i class="fa-regular fa-calendar"></i> <strong>${evo.data}</strong></span>
                 <span class="assinatura-meta"><i class="fa-solid fa-lock"></i> ${escapeHTML(evo.assinatura)}</span>
+                ${evo.duracaoSegundos ? `<span class="assinatura-meta"><i class="fa-regular fa-clock"></i> Duração: ${formatarDuracaoCurta(evo.duracaoSegundos)}</span>` : ''}
             </summary>
             <div class="timeline-content">${textoFormatado}</div>
         </details>

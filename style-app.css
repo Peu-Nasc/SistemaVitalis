@@ -2919,3 +2919,87 @@ table tbody tr:hover { background-color: #f6f9fc; }
 .pep-cron-texto { flex: 1; min-width: 180px; font-weight: 600; }
 .pep-cron-tempo { display: none; font-size: 1.3rem; font-variant-numeric: tabular-nums; }
 .pep-cronometro.rodando .pep-cron-tempo { display: inline; }
+
+/* =========================================================
+   MELHORIAS DR. AROLDO: SPLIT-VIEW, MODELOS E FATURAMENTO
+   ========================================================= */
+.pep-split-layout {
+    display: grid;
+    grid-template-columns: 1.35fr 0.85fr;
+    gap: 22px;
+    align-items: start;
+}
+@media (max-width: 1100px) {
+    .pep-split-layout { grid-template-columns: 1fr; }
+}
+.pep-historico-lateral {
+    background: #ffffff;
+    padding: 20px;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-soft);
+    position: sticky;
+    top: 16px;
+    max-height: calc(100vh - 140px);
+    overflow-y: auto;
+}
+.pep-toolbar-modelos {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    background: #f1f6fb;
+    border: 1px solid #d5e4f2;
+    padding: 10px 12px;
+    border-radius: 10px;
+    margin-bottom: 16px;
+}
+.btn-compact {
+    padding: 8px 12px !important;
+    font-size: 0.82rem !important;
+    white-space: nowrap;
+}
+.evo-acoes-dia {
+    display: inline-flex;
+    gap: 6px;
+    margin-left: 8px;
+}
+.btn-evo-mini {
+    border: 1px solid var(--border-color);
+    background: #fff;
+    color: var(--primary-color);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 0.74rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.btn-evo-mini:hover { background: var(--secondary-color); }
+.btn-evo-mini.danger { color: #dc3545; border-color: #f5c2c7; }
+.btn-evo-mini.danger:hover { background: #fff0f0; }
+
+/* Widget discreto de Faturamento do Profissional (com modo privacidade) */
+.painel-repasse-widget {
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+    background: rgba(255, 255, 255, 0.14);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 12px;
+    padding: 8px 14px;
+    color: #fff;
+    font-size: 0.82rem;
+}
+.painel-repasse-widget strong {
+    font-size: 0.98rem;
+    color: #5df2a8;
+    font-variant-numeric: tabular-nums;
+}
+.painel-repasse-widget .btn-olho-repasse {
+    background: none;
+    border: none;
+    color: #fff;
+    cursor: pointer;
+    font-size: 0.95rem;
+    opacity: 0.85;
+}

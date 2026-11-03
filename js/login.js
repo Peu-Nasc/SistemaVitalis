@@ -23,6 +23,7 @@ import { carregarAuditoria, registrarAuditoria } from './auditoria.js';
 import { atualizarAjudaPorPerfil } from './ajuda.js';
 import { renderizarCardsInicio } from './NavMenu.js';
 import { iniciarPainelMedico } from './painelMedico.js';
+import { carregarConfigClinica } from './configClinica.js';
 
 // ========================================================
 // RESTRIÇÃO DE ACESSO POR IP (por clínica)
@@ -179,6 +180,7 @@ export function initAuth() {
 
                 // Esconde as telas que não pode ver
                 aplicarPermissoesDeTela(); 
+                await carregarConfigClinica();
 
                 // AGORA SIM, com a clínica salva na memória, ele carrega os dados certos!
                 await carregarProfissionais();

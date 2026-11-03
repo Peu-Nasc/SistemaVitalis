@@ -1,22 +1,9 @@
 import { clinicaState } from './state.js';
-import { showToast, renderCardGrid, escapeHTML } from './Ferramentas.js';
+import { showToast, renderCardGrid, escapeHTML, formatCurrency } from './Ferramentas.js';
 import { db } from './firebase.js';
 import { collection, query, where, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js';
 import { abrirProntuario } from './pacientes.js';
-
-// ========================================================
-// PAINEL DO MÉDICO ("Meu Painel")
-// Tela inicial do perfil Doutor(a): só mostra o que importa pra rotina
-// de consultório - quem já chegou e está esperando (fila), a agenda do
-// dia dele e atalhos. Nada de financeiro ou gestão (isso continua
-// restrito ao Administrador/Recepção, ver login.js).
-//
-// TEMPO REAL: a agenda do resto do sistema é carregada uma vez só
-// (getDocs). Aqui isso não serve: a recepção marca o paciente como
-// "Aguardando Atendimento" e o médico precisa ver na hora, sem recarregar
-// a página. Por isso este módulo tem a própria escuta (onSnapshot) só
-// dos agendamentos do dia atual - leve e sem tocar no clinicaState.agenda.
-// ========================================================
+import { splitDoProcedimento, valorDoProcedimentoParaProfissional } from './procedimentos.js';
 
 const ROTULO_STATUS = {
     agendado: { texto: 'Agendado', classe: 'neutral' },
@@ -31,20 +18,14 @@ let dataEscutada = null;
 let primeiraCarga = true;
 let aguardandoConhecidos = new Set();
 let intervaloRelogio = null;
+let ocultarValoresRepasse = false;
 
-// Data local no formato YYYY-MM-DD (o mesmo do <input type="date"> da
-// Agenda). Não usar toISOString(): ele converte pra UTC e, à noite no
-// Brasil, devolveria o dia seguinte.
 function dataLocalISO(d = new Date()) {
     const mes = String(d.getMonth() + 1).padStart(2, '0');
     const dia = String(d.getDate()).padStart(2, '0');
     return `${d.getFullYear()}-${mes}-${dia}`;
 }
 
-// O login não guarda o ID do cadastro de profissional na sessão, então
-// o vínculo é feito pelo e-mail (cadastrado em Equipe = e-mail do login)
-// e, se não achar, pelo nome - mesmo critério que o prontuário já usa
-// pra travar a assinatura (ver abrirProntuario em pacientes.js).
 function obterProfissionalLogado() {
     const emailSessao = (clinicaState.sessao.email || '').trim().toLowerCase();
     const nomeSessao = (clinicaState.sessao.nome || '').trim().toLowerCase();
@@ -65,6 +46,15 @@ function meusAgendamentosDeHoje() {
     return agendamentosHoje
         .filter(a => String(a.profId) === String(prof.id) && a.status !== 'cancelado')
         .sort((a, b) => (a.hora || '').localeCompare(b.hora || ''));
+}
+
+// Calcula quanto o médico ganha em cada consulta respeitando o split ou valor do procedimento
+function calcularRepasseDaConsulta(ag, profId) {
+    const valorBase = Number(ag.valorAtendimento || 0)
+        || (ag.procedimentoId ? valorDoProcedimentoParaProfissional(ag.procedimentoId, profId) : 0);
+    if (!valorBase) return 0;
+    const { valorProfissional } = splitDoProcedimento(ag.procedimentoId, valorBase);
+    return Number(valorProfissional || 0);
 }
 
 function escutarAgendaDeHoje() {
@@ -92,9 +82,6 @@ function escutarAgendaDeHoje() {
     });
 }
 
-// Avisa (toast) quando um paciente DESTE médico passa a "Aguardando".
-// Na primeira carga só memoriza quem já estava na fila, pra não disparar
-// aviso de gente que chegou antes dele abrir o sistema.
 function avisarNovosAguardando() {
     const meus = meusAgendamentosDeHoje() || [];
     const aguardando = meus.filter(a => a.status === 'aguardando_atendimento');
@@ -155,19 +142,15 @@ function itemFila(a, posicao) {
 
 export function renderizarPainelMedico() {
     const secao = document.getElementById('painel-medico');
-    if (!secao) return;
-    // Tela exclusiva do Doutor(a): qualquer outro perfil não renderiza nada
-    if (clinicaState.sessao.perfil !== 'Doutor(a)') return;
+    if (!secao || clinicaState.sessao.perfil !== 'Doutor(a)') return;
 
-    // Se o dia virou com o sistema aberto, troca a escuta pro dia novo
-    if (clinicaState.sessao.perfil === 'Doutor(a)' && dataEscutada && dataEscutada !== dataLocalISO()) {
+    if (dataEscutada && dataEscutada !== dataLocalISO()) {
         escutarAgendaDeHoje();
     }
 
     const prof = obterProfissionalLogado();
     const agora = new Date();
 
-    // Cabeçalho
     const primeiroNome = (prof?.nome || clinicaState.sessao.nome || '').trim().split(/\s+/)[0] || '';
     const elSaudacao = document.getElementById('painel-saudacao');
     if (elSaudacao) elSaudacao.textContent = `${saudacaoPorHora()}, Dr(a). ${primeiroNome}`;
@@ -178,8 +161,7 @@ export function renderizarPainelMedico() {
     const elCredencial = document.getElementById('painel-credencial');
     if (!elCredencial) return;
     if (prof) {
-        const partes = [prof.especialidade, prof.conselho && prof.registro ? `${prof.conselho} ${prof.registro}` : '']
-            .filter(Boolean);
+        const partes = [prof.especialidade, prof.conselho && prof.registro ? `${prof.conselho} ${prof.registro}` : ''].filter(Boolean);
         elCredencial.textContent = partes.join(' · ');
     } else {
         elCredencial.textContent = '';
@@ -188,13 +170,11 @@ export function renderizarPainelMedico() {
     const aviso = document.getElementById('painel-aviso-vinculo');
     const meus = meusAgendamentosDeHoje();
 
-    // Login sem cadastro correspondente na Equipe: não dá pra saber quais
-    // consultas são dele, então não mostra a agenda de ninguém.
     if (meus === null) {
         aviso.style.display = 'flex';
         aviso.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i>
             <div><strong>Seu login ainda não está vinculado a um cadastro de profissional.</strong><br>
-            Peça ao administrador para cadastrar você na Equipe usando o mesmo e-mail do seu login. Assim sua fila e sua agenda aparecem aqui.</div>`;
+            Peça ao administrador para cadastrar você na Equipe usando o mesmo e-mail do seu login.</div>`;
         renderCardGrid('painel-kpis', []);
         document.getElementById('painel-fila').innerHTML = '';
         document.getElementById('painel-agenda').innerHTML = '';
@@ -206,15 +186,36 @@ export function renderizarPainelMedico() {
 
     const fila = meus.filter(a => a.status === 'aguardando_atendimento');
     const concluidos = meus.filter(a => a.status === 'concluido');
-    const horaAgora = `${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`;
-    const proxima = meus.find(a => (a.status === 'agendado' || a.status === 'confirmado') && (a.hora || '') >= horaAgora);
+    const pendentesDia = meus.filter(a => a.status !== 'concluido');
+
+    // Cálculo de Repasse em Tempo Real (Pedido Dr. Aroldo)
+    const valorFaturadoHoje = concluidos.reduce((soma, a) => soma + calcularRepasseDaConsulta(a, prof.id), 0);
+    const valorPrevistoRestante = pendentesDia.reduce((soma, a) => soma + calcularRepasseDaConsulta(a, prof.id), 0);
+
+    const txtFaturado = ocultarValoresRepasse ? 'R$ ••••' : formatCurrency(valorFaturadoHoje);
+    const txtPrevisto = ocultarValoresRepasse ? 'R$ ••••' : formatCurrency(valorPrevistoRestante);
 
     renderCardGrid('painel-kpis', [
         { id: 'painel-kpi-total', label: 'Consultas Hoje', initial: String(meus.length), variant: 'primary' },
         { id: 'painel-kpi-fila', label: 'Na Fila Agora', initial: String(fila.length), variant: 'warning', valueClass: 'warning' },
-        { id: 'painel-kpi-feitos', label: 'Atendidos', initial: String(concluidos.length), variant: 'success', valueClass: 'positivo' },
-        { id: 'painel-kpi-proxima', label: 'Próxima Consulta', initial: proxima ? proxima.hora : '—', variant: 'primary' }
+        { id: 'painel-kpi-faturado', label: 'Já Faturado Hoje (Meu Repasse)', initial: txtFaturado, variant: 'success', valueClass: 'positivo' },
+        { id: 'painel-kpi-previsto', label: 'A Faturar Hoje (Restante)', initial: txtPrevisto, variant: 'primary' }
     ]);
+
+    // Adiciona botão de olho no card de faturamento para privacidade no consultório
+    const cardFaturado = document.getElementById('painel-kpi-faturado')?.parentElement;
+    if (cardFaturado && !cardFaturado.querySelector('.btn-toggle-privacidade')) {
+        const btnOlho = document.createElement('button');
+        btnOlho.type = 'button';
+        btnOlho.className = 'btn-evo-mini btn-toggle-privacidade';
+        btnOlho.style.marginTop = '6px';
+        btnOlho.innerHTML = `<i class="fa-regular ${ocultarValoresRepasse ? 'fa-eye' : 'fa-eye-slash'}"></i> ${ocultarValoresRepasse ? 'Mostrar valores' : 'Ocultar valores'}`;
+        btnOlho.addEventListener('click', () => {
+            ocultarValoresRepasse = !ocultarValoresRepasse;
+            renderizarPainelMedico();
+        });
+        cardFaturado.appendChild(btnOlho);
+    }
 
     document.getElementById('painel-fila-contador').textContent = String(fila.length);
     document.getElementById('painel-fila').innerHTML = fila.length
@@ -250,7 +251,6 @@ function renderizarAtalhos() {
         </button>`;
 }
 
-// Liga os cliques UMA vez (delegação): abrir prontuário e atalhos.
 export function initPainelMedico() {
     const secao = document.getElementById('painel-medico');
     if (!secao) return;
@@ -258,8 +258,7 @@ export function initPainelMedico() {
     secao.addEventListener('click', (e) => {
         const btnAbrir = e.target.closest('.btn-painel-abrir');
         if (btnAbrir) {
-            // "Atender" (fila) já abre direto na aba de atendimento
-            abrirProntuario(btnAbrir.getAttribute('data-pac-id'), { aba: btnAbrir.getAttribute('data-aba') || undefined });
+            abrirProntuario(btnAbrir.getAttribute('data-pac-id'), { aba: btnAbrir.getAttribute('data-aba') || 'tab-evolucao' });
             return;
         }
         const atalho = e.target.closest('.painel-atalho');
@@ -269,41 +268,16 @@ export function initPainelMedico() {
     });
 }
 
-// Chamada por login.js depois que a sessão e os profissionais já foram
-// carregados - só então dá pra descobrir quem é o médico logado.
 export function iniciarPainelMedico() {
     if (clinicaState.sessao.perfil !== 'Doutor(a)') return;
 
-    // Qualquer falha aqui não pode travar o login (a tela de login só some
-    // depois que esta função retorna)
-    try {
-        escutarAgendaDeHoje();
-        renderizarPainelMedico();
-    } catch (error) {
-        console.error("Erro ao iniciar o painel do médico: ", error);
-        showToast('Não foi possível carregar o Meu Painel.', 'error');
-    }
+    escutarAgendaDeHoje();
+    renderizarPainelMedico();
 
-    // Atualiza "próxima consulta" e vira o dia sozinho, sem depender de
-    // novo snapshot do banco
     if (!intervaloRelogio) {
         intervaloRelogio = setInterval(() => {
             const aberto = document.getElementById('painel-medico')?.classList.contains('active');
             if (aberto) renderizarPainelMedico();
         }, 60000);
-    }
-}
-
-// Encerra a escuta em tempo real e zera o estado do módulo.
-export function pararPainelMedico() {
-    if (cancelarEscuta) cancelarEscuta();
-    cancelarEscuta = null;
-    dataEscutada = null;
-    agendamentosHoje = [];
-    aguardandoConhecidos = new Set();
-    primeiraCarga = true;
-    if (intervaloRelogio) {
-        clearInterval(intervaloRelogio);
-        intervaloRelogio = null;
     }
 }

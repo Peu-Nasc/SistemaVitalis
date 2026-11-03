@@ -14,6 +14,7 @@ import { initPainelMedico } from './painelMedico.js';
 import { initModelosDocumentos } from './modelosDocumentos.js';
 import { initEditorDocumento } from './editorDocumento.js';
 import { initAtendimento } from './atendimento.js';
+import { initConfigClinica } from './configClinica.js';
 
 // ========================================================
 // TRAVA ANTI-SPAM (PREVENÇÃO DE MÚLTIPLAS REQUISIÇÕES)
@@ -62,6 +63,8 @@ document.addEventListener('DOMContentLoaded', () => {
     initPainelMedico();
     initModelosDocumentos();
     initAtendimento();
+
+    initConfigClinica();
 
     calcularDRE();
     atualizarTabelaFinanceiro();

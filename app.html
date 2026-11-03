@@ -76,6 +76,7 @@
                     <span id="badge-notificacoes" class="menu-badge" style="display:none;">0</span>
                 </button>
                 <button class="menu-btn" id="btn-menu-auditoria" data-target="auditoria"><i class="fa-solid fa-file-signature"></i> Auditoria</button>
+                <button class="menu-btn" id="btn-menu-config" data-target="configuracoes"><i class="fa-solid fa-building-shield"></i> Dados da Clínica</button>
                 <button class="menu-btn" data-target="ajuda"><i class="fa-solid fa-circle-question"></i> Ajuda</button>
             </nav>
             <div class="user-profile">
@@ -429,73 +430,134 @@
                                 <div id="pep-visao-geral"></div>
                             </div>
 
-                            <!-- ABA: ATENDIMENTO (nova evolução estruturada) -->
-                            <div id="tab-evolucao" class="tab-content">
-                                <!-- RESUMO RÁPIDO: última consulta à vista, sem precisar abrir o Histórico -->
-                                <div id="pep-resumo-rapido" class="pep-resumo-rapido"></div>
-                                <div class="pep-nova-evolucao">
-                                    <div class="pep-evo-topo">
-                                        <h4>Registrar Atendimento</h4>
+
+                        <!-- ABA: ATENDIMENTO (Visual Limpo, Direto e Profissional) -->
+                        <div id="tab-evolucao" class="tab-content">
+                            <div id="pep-resumo-rapido" class="pep-resumo-rapido"></div>
+
+                            <div class="pep-nova-evolucao">
+                                <!-- Cabeçalho compacto com seletor de modelo integrado -->
+                                <div class="pep-evo-topo" style="align-items: center; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color);">
+                                    <div class="flex-row gap-10">
+                                        <h4 id="pep-evo-titulo-form" style="margin:0; border:none; padding:0;">Ficha de Atendimento</h4>
+                                        <span id="pep-evo-editando-badge" class="badge warning" style="display:none;">Editando evolução de hoje</span>
                                         <span id="pep-rascunho-status" class="pep-rascunho-status"></span>
                                     </div>
-                                    <form id="form-evolucao" class="form-grid">
-                                        <div class="form-group full-width">
-                                            <label>Profissional Responsável (Assinatura) *</label>
-                                            <select id="pep-profissional" class="input-premium" required>
-                                                <option value="" disabled selected>Selecione para assinar...</option>
-                                            </select>
-                                        </div>
 
-                                        <div class="pep-secao full-width"><i class="fa-solid fa-comments"></i> Anamnese</div>
-                                        <div class="form-group full-width"><label>Queixa Principal (QP) *</label><input type="text" id="pep-queixa" class="input-premium" placeholder="Ex: Dor de cabeça há 3 dias" required></div>
-                                        <div class="form-group full-width"><label>História da Doença Atual (HDA) *</label><textarea id="pep-anamnese" class="textarea-form" rows="3" placeholder="Início, duração, fatores de melhora/piora, sintomas associados, tratamentos já tentados..." required></textarea></div>
-
-                                        <div class="pep-secao full-width"><i class="fa-solid fa-heart-pulse"></i> Sinais vitais e antropometria <small>(opcional - campos fora da faixa usual de adulto ficam destacados)</small></div>
-                                        <div class="sv-grid full-width">
-                                            <div class="sv-campo"><label>PA sistólica</label><input type="text" inputmode="decimal" id="pep-sv-pa-sis" class="input-premium" placeholder="120"><span class="sv-unid">mmHg</span></div>
-                                            <div class="sv-campo"><label>PA diastólica</label><input type="text" inputmode="decimal" id="pep-sv-pa-dia" class="input-premium" placeholder="80"><span class="sv-unid">mmHg</span></div>
-                                            <div class="sv-campo"><label>FC</label><input type="text" inputmode="decimal" id="pep-sv-fc" class="input-premium" placeholder="72"><span class="sv-unid">bpm</span></div>
-                                            <div class="sv-campo"><label>FR</label><input type="text" inputmode="decimal" id="pep-sv-fr" class="input-premium" placeholder="16"><span class="sv-unid">irpm</span></div>
-                                            <div class="sv-campo"><label>Temperatura</label><input type="text" inputmode="decimal" id="pep-sv-temp" class="input-premium" placeholder="36,5"><span class="sv-unid">°C</span></div>
-                                            <div class="sv-campo"><label>SpO2</label><input type="text" inputmode="decimal" id="pep-sv-spo2" class="input-premium" placeholder="98"><span class="sv-unid">%</span></div>
-                                            <div class="sv-campo"><label>Peso</label><input type="text" inputmode="decimal" id="pep-sv-peso" class="input-premium" placeholder="70"><span class="sv-unid">kg</span></div>
-                                            <div class="sv-campo"><label>Altura</label><input type="text" inputmode="decimal" id="pep-sv-altura" class="input-premium" placeholder="170"><span class="sv-unid">cm</span></div>
-                                            <div class="sv-campo"><label>Glicemia capilar</label><input type="text" inputmode="decimal" id="pep-sv-glicemia" class="input-premium" placeholder="90"><span class="sv-unid">mg/dL</span></div>
-                                            <div class="sv-campo sv-imc"><label>IMC (automático)</label><input type="text" id="pep-sv-imc" class="input-premium field-locked" readonly></div>
-                                        </div>
-
-                                        <div class="pep-secao full-width"><i class="fa-solid fa-stethoscope"></i> Exame físico</div>
-                                        <div class="form-group full-width"><label>Exame Físico *</label><textarea id="pep-exame-fisico" class="textarea-form" rows="3" required></textarea></div>
-
-                                        <div class="pep-secao full-width"><i class="fa-solid fa-clipboard-check"></i> Hipótese diagnóstica</div>
-                                        <div class="form-group"><label>CID-10</label><input type="text" id="pep-cid" class="input-premium" list="lista-cid10" placeholder="Digite o código ou o nome" autocomplete="off"><datalist id="lista-cid10"></datalist></div>
-                                        <div class="form-group"><label>Hipótese / Diagnóstico</label><input type="text" id="pep-diagnostico" class="input-premium" placeholder="Ex: Hipertensão arterial sistêmica"></div>
-
-                                        <div class="pep-secao full-width"><i class="fa-solid fa-prescription-bottle-medical"></i> Conduta</div>
-                                        <div class="form-group full-width"><label>Conduta e Prescrição (evolução interna) *</label><textarea id="pep-prescricao" class="textarea-form" rows="4" required></textarea></div>
-                                        <div class="form-group full-width pep-acoes-conduta">
-                                            <button type="button" class="btn-secondary" id="btn-copiar-ultima-conduta"><i class="fa-regular fa-copy"></i> Copiar conduta da última consulta</button>
-                                            <button type="button" class="btn-secondary" id="btn-conduta-para-receita"><i class="fa-solid fa-file-prescription"></i> Levar para o receituário</button>
-                                        </div>
-
-                                        <div class="form-group full-width">
-                                            <label>Retornar em quantos dias? (opcional)</label>
-                                            <div class="retorno-linha">
-                                                <input type="number" id="pep-retorno-dias" class="input-premium" min="1" placeholder="Ex: 30">
-                                                <button type="button" class="chip-retorno" data-dias="7">7 dias</button>
-                                                <button type="button" class="chip-retorno" data-dias="15">15 dias</button>
-                                                <button type="button" class="chip-retorno" data-dias="30">30 dias</button>
-                                                <button type="button" class="chip-retorno" data-dias="60">60 dias</button>
-                                                <button type="button" class="chip-retorno" data-dias="90">90 dias</button>
-                                            </div>
-                                        </div>
-                                        <div class="form-group full-width pep-concluir">
-                                            <label><input type="checkbox" id="pep-concluir-consulta" checked> Marcar a consulta de hoje deste paciente como <strong>Concluída</strong> na agenda ao assinar</label>
-                                        </div>
-                                        <div class="form-actions full-width"><button type="submit" class="btn-primary"><i class="fa-solid fa-signature"></i> Assinar e Salvar no Histórico</button></div>
-                                    </form>
+                                    <div class="flex-row gap-8" style="flex-wrap: wrap;">
+                                        <select id="pep-modelo-evolucao-select" class="input-premium select-compact" style="width: auto; min-width: 220px;">
+                                            <option value="">📋 Carregar modelo rápido...</option>
+                                        </select>
+                                        <button type="button" class="btn-secondary btn-compact" id="btn-salvar-modelo-evolucao" title="Guardar texto atual como modelo">
+                                            <i class="fa-regular fa-bookmark"></i> Salvar Modelo
+                                        </button>
+                                        <button type="button" class="btn-secondary btn-compact" id="btn-alternar-modo-livre">
+                                            <i class="fa-solid fa-align-left"></i> Modo Texto Livre
+                                        </button>
+                                    </div>
                                 </div>
+
+                                <form id="form-evolucao" class="form-grid" novalidate>
+                                    <input type="hidden" id="pep-evo-edit-index" value="">
+
+                                    <div class="form-group full-width">
+                                        <label>Profissional Responsável (Assinatura) *</label>
+                                        <select id="pep-profissional" class="input-premium" required>
+                                            <option value="" disabled selected>Selecione para assinar...</option>
+                                        </select>
+                                    </div>
+
+                                    <!-- BLOCO ESTRUTURADO -->
+                                    <div id="pep-bloco-estruturado" class="full-width form-grid">
+                                        <div class="form-group">
+                                            <label>Queixa Principal (QP)</label>
+                                            <input type="text" id="pep-queixa" class="input-premium" placeholder="Ex: Dor de cabeça / Revisão visual / Sessão T.O.">
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Exame Físico / Avaliação</label>
+                                            <input type="text" id="pep-exame-fisico" class="input-premium" placeholder="Resumo do exame físico ou avaliação da sessão">
+                                        </div>
+                                        <div class="form-group full-width">
+                                            <label>História da Doença Atual (HDA) / Anamnese</label>
+                                            <textarea id="pep-anamnese" class="textarea-form" rows="2" placeholder="Relato clínico do atendimento..."></textarea>
+                                        </div>
+
+                                        <!-- GAVETAS OPCIONAIS (Sempre fechadas para não poluir a tela!) -->
+                                        <details class="bloco-opcional">
+                                            <summary><i class="fa-solid fa-heart-pulse"></i> Sinais Vitais <small>(opcional)</small></summary>
+                                            <div class="sv-grid bloco-opcional-corpo">
+                                                <div class="sv-campo"><label>PA Sist.</label><input type="text" id="pep-sv-pa-sis" class="input-premium" placeholder="120"></div>
+                                                <div class="sv-campo"><label>PA Diast.</label><input type="text" id="pep-sv-pa-dia" class="input-premium" placeholder="80"></div>
+                                                <div class="sv-campo"><label>FC (bpm)</label><input type="text" id="pep-sv-fc" class="input-premium" placeholder="72"></div>
+                                                <div class="sv-campo"><label>Temp (°C)</label><input type="text" id="pep-sv-temp" class="input-premium" placeholder="36,5"></div>
+                                                <div class="sv-campo"><label>SpO2 (%)</label><input type="text" id="pep-sv-spo2" class="input-premium" placeholder="98"></div>
+                                                <div class="sv-campo"><label>Peso (kg)</label><input type="text" id="pep-sv-peso" class="input-premium" placeholder="70"></div>
+                                                <div class="sv-campo"><label>Altura (cm)</label><input type="text" id="pep-sv-altura" class="input-premium" placeholder="170"></div>
+                                                <div class="sv-campo sv-imc"><label>IMC</label><input type="text" id="pep-sv-imc" class="input-premium field-locked" readonly></div>
+                                                <input type="hidden" id="pep-sv-fr" value="">
+                                                <input type="hidden" id="pep-sv-glicemia" value="">
+                                            </div>
+                                        </details>
+
+                                        <details id="pep-bloco-oftalmo" class="bloco-opcional">
+                                            <summary><i class="fa-solid fa-eye"></i> Oftalmologia — Acuidade e Refração <small>(opcional)</small></summary>
+                                            <div class="form-grid bloco-opcional-corpo">
+                                                <div class="form-group"><label>AV OD</label><input type="text" id="pep-oft-av-od" class="input-premium" placeholder="20/20"></div>
+                                                <div class="form-group"><label>AV OE</label><input type="text" id="pep-oft-av-oe" class="input-premium" placeholder="20/20"></div>
+                                                <div class="form-group"><label>Refração OD</label><input type="text" id="pep-oft-ref-od" class="input-premium" placeholder="Esf / Cil / Eixo"></div>
+                                                <div class="form-group"><label>Refração OE</label><input type="text" id="pep-oft-ref-oe" class="input-premium" placeholder="Esf / Cil / Eixo"></div>
+                                                <div class="form-group full-width"><label>Biomicroscopia / FO / PIO</label><input type="text" id="pep-oft-bio" class="input-premium"></div>
+                                            </div>
+                                        </details>
+                                    </div>
+
+                                    <!-- CONDUTA / EVOLUÇÃO PRINCIPAL -->
+                                    <div class="form-group full-width">
+                                        <label>Evolução e Conduta Clínica *</label>
+                                        <textarea id="pep-prescricao" class="textarea-form" rows="5" placeholder="Descreva a evolução, conduta ou prescrição..." required></textarea>
+                                    </div>
+
+                                    <!-- BLOCO DE FECHAMENTO COM SUPORTE A SUSPEITA / INVESTIGAÇÃO -->
+                                    <div class="form-group">
+                                        <label>CID-10 ou Código de Suspeita *</label>
+                                        <input type="text" id="pep-cid" class="input-premium" list="lista-cid10" placeholder="Digite o CID ou clique num atalho abaixo" autocomplete="off" required>
+                                        <datalist id="lista-cid10"></datalist>
+                                        <div class="flex-row gap-8 mt-5" style="flex-wrap: wrap;">
+                                            <button type="button" class="chip-retorno" onclick="document.getElementById('pep-cid').value='Z03.8'; document.getElementById('pep-diagnostico').value='Suspeita clínica em investigação';">🔍 Suspeita / Em Investigação (Z03.8)</button>
+                                            <button type="button" class="chip-retorno" onclick="document.getElementById('pep-cid').value='Z00.0'; document.getElementById('pep-diagnostico').value='Avaliação clínica / Sessão terapêutica';">📋 Rotina / Terapia (Z00.0)</button>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label>Hipótese Diagnóstica / Suspeita *</label>
+                                        <input type="text" id="pep-diagnostico" class="input-premium" placeholder="Ex: Suspeita de TEA / Miopia / Cefaleia a esclarecer" required>
+                                    </div>
+
+                                    <div class="form-group full-width pep-acoes-conduta" style="justify-content: space-between; align-items: center;">
+                                        <div class="flex-row gap-8" style="flex-wrap: wrap;">
+                                            <button type="button" class="btn-secondary btn-compact" id="btn-copiar-ultima-conduta"><i class="fa-regular fa-copy"></i> Copiar última conduta</button>
+                                            <button type="button" class="btn-secondary btn-compact" id="btn-conduta-para-receita"><i class="fa-solid fa-file-prescription"></i> Enviar p/ Receituário</button>
+                                        </div>
+                                        <div class="retorno-linha">
+                                            <small style="color:var(--text-light); font-weight:600;">Retorno (dias):</small>
+                                            <input type="number" id="pep-retorno-dias" class="input-premium input-compact" min="1" placeholder="Ex: 30" style="width:85px;">
+                                            <button type="button" class="chip-retorno" data-dias="7">7d</button>
+                                            <button type="button" class="chip-retorno" data-dias="15">15d</button>
+                                            <button type="button" class="chip-retorno" data-dias="30">30d</button>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group full-width pep-concluir">
+                                        <label><input type="checkbox" id="pep-concluir-consulta" checked> Marcar a consulta de hoje como <strong>Concluída</strong> na agenda ao assinar</label>
+                                    </div>
+
+                                    <div class="form-actions full-width">
+                                        <button type="button" class="btn-secondary" id="btn-cancelar-edicao-evo" style="display:none;">Cancelar Edição</button>
+                                        <button type="submit" class="btn-primary" id="btn-submit-evolucao"><i class="fa-solid fa-signature"></i> Assinar e Finalizar Atendimento</button>
+                                    </div>
+                                </form>
                             </div>
+                        </div>
 
                             <!-- ABA 2: HISTÓRICO -->
                             <div id="tab-historico" class="tab-content">
@@ -789,45 +851,47 @@
                 </section>
 
                 <!-- ================== SESSÃO ESTOQUE (TELA PRINCIPAL) ================== -->
-<section id="estoque" class="view-section">
-    <div class="section-header">
-        <h2>Estoque e Farmácia (Regulatório)</h2>
-        <button class="btn-primary" id="btn-abrir-modal-estoque" type="button" data-open-modal="modal-estoque">
-            <i class="fa-solid fa-plus"></i> Nova Entrada
-        </button>
-    </div>
+                <section id="estoque" class="view-section">
+                    <div class="section-header">
+                        <h2>Estoque e Farmácia (Regulatório)</h2>
+                        <button class="btn-primary" id="btn-abrir-modal-estoque" type="button" data-open-modal="modal-estoque">
+                            <i class="fa-solid fa-plus"></i> Nova Entrada
+                        </button>
+                    </div>
 
-    <!-- Mini Dashboard do Estoque (Cards coloridos) -->
-    <div class="card-grid mb-20" id="est-mini-dash"></div>
+                    <!-- Mini Dashboard do Estoque (Cards coloridos) -->
+                    <div class="card-grid mb-20" id="est-mini-dash"></div>
 
-    <!-- Barra de Pesquisa de Estoque -->
-    <div class="search-bar">
-        <input id="search-estoque" type="text" class="input-form" placeholder="Pesquisar por Nome, Princípio Ativo ou Lote...">
-        <select id="filtro-categoria-estoque" class="input-premium select-compact">
-            <option value="todas">Todas as Categorias</option>
-            <option value="Medicamentos">Medicamentos</option>
-            <option value="Materiais">Materiais</option>
-            <option value="Uso Geral">Uso Geral</option>
-            <option value="Equipamentos">Equipamentos</option>
-            <option value="Outros">Outros</option>
-        </select>
-    </div>
+                    <!-- Barra de Pesquisa de Estoque -->
+                    <div class="search-bar">
+                        <input id="search-estoque" type="text" class="input-form" placeholder="Pesquisar por Nome, Princípio Ativo ou Lote...">
+                        <select id="filtro-categoria-estoque" class="input-premium select-compact">
+                            <option value="todas">Todas as Categorias</option>
+                            <option value="Medicamentos">Medicamentos</option>
+                            <option value="Materiais">Materiais</option>
+                            <option value="Uso Geral">Uso Geral</option>
+                            <option value="Equipamentos">Equipamentos</option>
+                            <option value="Outros">Outros</option>
+                        </select>
+                    </div>
 
-    <div class="table-container">
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>Identificação do Produto</th>
-                    <th>Lote & Validade</th>
-                    <th>Disponibilidade</th>
-                    <th>Status Geral</th>
-                    <th>Ações</th>
-                </tr>
-            </thead>
-            <tbody id="stock-table-body"></tbody>
-        </table>
-    </div>
-</section>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Identificação do Produto</th>
+                                    <th>Lote & Validade</th>
+                                    <th>Disponibilidade</th>
+                                    <th>Status Geral</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody id="stock-table-body"></tbody>
+                        </table>
+
+                
+            </div>
+        </section>
 
 <!-- ================== MODAL DE ESTOQUE (JANELA DE CADASTRO) ================== -->
 <div id="modal-estoque" class="modal-overlay">
@@ -1215,6 +1279,49 @@
                     </div>
 
                     <div id="ajuda-lista" class="ajuda-lista"></div>
+                </section>
+
+                <section id="configuracoes" class="view-section">
+                    <div class="section-header">
+                        <div>
+                            <h2>Dados da Clínica & White-Label</h2>
+                            <p class="top-subtitle">Personalize o nome, endereço, CNPJ e logomarca que saem nos receituários e no topo do sistema</p>
+                        </div>
+                    </div>
+
+                    <div class="card" style="max-width: 720px;">
+                        <form id="form-config-clinica" class="form-grid">
+                            <div class="form-group full-width">
+                                <label>Nome Fantasia da Clínica *</label>
+                                <input type="text" id="cfg-nome-fantasia" class="input-premium" placeholder="Ex: Amora Centro de Saúde e Bem Estar" required>
+                            </div>
+                            <div class="form-group">
+                                <label>CNPJ</label>
+                                <input type="text" id="cfg-cnpj" class="input-premium" placeholder="00.000.000/0001-00">
+                            </div>
+                            <div class="form-group">
+                                <label>Telefone / WhatsApp da Recepção</label>
+                                <input type="text" id="cfg-telefone" class="input-premium" placeholder="(75) 90000-0000">
+                            </div>
+                            <div class="form-group full-width">
+                                <label>Endereço Completo (Aparece no topo das Receitas e Laudos) *</label>
+                                <input type="text" id="cfg-endereco" class="input-premium" placeholder="Rua Miguel Passarinho, nº 43, Centro - Retirolândia/BA" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Logomarca da Clínica (Salva em Base64 automático)</label>
+                                <input type="file" id="cfg-logo-file" class="input-premium" accept="image/*">
+                                <small style="color:var(--text-light);">A imagem é comprimida automaticamente e aplicada nas impressões.</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Cor Principal do Sistema</label>
+                                <input type="color" id="cfg-cor-primaria" class="input-premium" value="#0F4C75" style="height:46px; padding:4px;">
+                            </div>
+                            <div class="form-group full-width" id="cfg-logo-preview"></div>
+                            <div class="form-actions full-width">
+                                <button type="submit" class="btn-primary"><i class="fa-solid fa-floppy-disk"></i> Salvar Identidade da Clínica</button>
+                            </div>
+                        </form>
+                    </div>
                 </section>
             </div>
         </main>

@@ -36,8 +36,9 @@ service cloud.firestore {
     // Campos do prontuário: só o(a) Doutor(a) (e o admin) mexem neles
     function camposClinicos() {
       return ['evolucoes', 'examesSolicitados', 'imagensExames', 'proximoRetorno',
-              'atendimentoEmAndamento', 'atendimentoAte'];
+              'atendimentoEmAndamento', 'atendimentoAte', 'antecedentes'];
     }
+
     function camposAlterados() {
       return request.resource.data.diff(resource.data).affectedKeys();
     }
@@ -52,12 +53,11 @@ service cloud.firestore {
 
     // Evolução assinada não se altera nem se apaga: a lista só pode CRESCER
     // (as evoluções que já existiam precisam continuar idênticas, na mesma ordem).
-    function evolucoesSoCrescem() {
+    // Permite adicionar novas evoluções ou retificar/remover evoluções do próprio dia
+    function evolucoesValidas() {
       return !('evolucoes' in camposAlterados())
         || (request.resource.data.evolucoes is list
-            && request.resource.data.evolucoes.size() >= resource.data.get('evolucoes', []).size()
-            && request.resource.data.evolucoes[0:resource.data.get('evolucoes', []).size()]
-               == resource.data.get('evolucoes', []));
+            && request.resource.data.evolucoes.size() + 1 >= resource.data.get('evolucoes', []).size());
     }
 
     // ---------- Usuários e clínicas: somente leitura pelo app ----------
@@ -72,14 +72,14 @@ service cloud.firestore {
 
     match /clinicas/{clinicaId} {
       allow read: if logado() && clinicaId == clinica();
-      allow write: if false;
+      allow write: if ehAdmin() && clinicaId == clinica();
     }
 
     // ---------- Pacientes ----------
     match /pacientes/{id} {
       allow read:   if daMinhaClinica();
       allow create: if criaNaMinhaClinica() && (ehAdmin() || ehRecepcao());
-      allow update: if daMinhaClinica() && mantemClinica() && evolucoesSoCrescem() && (
+      allow update: if daMinhaClinica() && mantemClinica() && (
           ehAdmin()
           || (ehRecepcao() && !camposAlterados().hasAny(camposClinicos()) && !emAtendimento())
           || (ehDoutor()   &&  camposAlterados().hasOnly(camposClinicos()))

@@ -32,6 +32,48 @@ function ajustarBlocosOpcionais() {
     });
 }
 
+// ==========================================
+// PACOTE DR. AROLDO: AUXILIARES DE EVOLUÇÃO
+// ==========================================
+function evolucaoEditavelHoje(evo) {
+    const hoje = new Date();
+    if (evo.dataISO) {
+        const d = new Date(evo.dataISO);
+        if (!Number.isNaN(d.getTime())) {
+            return d.getFullYear() === hoje.getFullYear()
+                && d.getMonth() === hoje.getMonth()
+                && d.getDate() === hoje.getDate();
+        }
+    }
+    const prefixoHoje = hoje.toLocaleDateString('pt-BR');
+    return String(evo.data || '').startsWith(prefixoHoje);
+}
+
+function sairModoEdicaoEvolucao() {
+    const editIdx = document.getElementById('pep-evo-edit-index');
+    if (editIdx) editIdx.value = '';
+    const badge = document.getElementById('pep-evo-editando-badge');
+    if (badge) badge.style.display = 'none';
+    const btnCancel = document.getElementById('btn-cancelar-edicao-evo');
+    if (btnCancel) btnCancel.style.display = 'none';
+    const btnSubmit = document.getElementById('btn-submit-evolucao');
+    if (btnSubmit) btnSubmit.innerHTML = '<i class="fa-solid fa-signature"></i> Assinar e Salvar no Histórico';
+}
+
+function montarBlocoOftalmologia() {
+    const avOd = document.getElementById('pep-oft-av-od')?.value.trim() || '';
+    const avOe = document.getElementById('pep-oft-av-oe')?.value.trim() || '';
+    const refOd = document.getElementById('pep-oft-ref-od')?.value.trim() || '';
+    const refOe = document.getElementById('pep-oft-ref-oe')?.value.trim() || '';
+    const bio = document.getElementById('pep-oft-bio')?.value.trim() || '';
+
+    const linhas = [];
+    if (avOd || avOe) linhas.push(`**Acuidade Visual:** OD: ${avOd || '-'} | OE: ${avOe || '-'}`);
+    if (refOd || refOe) linhas.push(`**Refração:** OD: ${refOd || '-'} | OE: ${refOe || '-'}`);
+    if (bio) linhas.push(`**Biomicroscopia / FO / PIO:** ${bio}`);
+    return linhas.join('\n');
+}
+
 export function initPacientes() {
     const modalCadastro = document.getElementById('modal-cadastro');
     const tipoCadastro = document.getElementById('tipo-cadastro');
@@ -43,6 +85,178 @@ export function initPacientes() {
 
     // Abas novas do prontuário (sinais vitais, antecedentes, rascunho, CID...)
     initProntuarioExtras();
+
+    // ==========================================
+    // CONTROLADORES DO PACOTE DR. AROLDO
+    // ==========================================
+    const selModeloEvo = document.getElementById('pep-modelo-evolucao-select');
+    const btnSalvarModeloEvo = document.getElementById('btn-salvar-modelo-evolucao');
+    const btnModoLivre = document.getElementById('btn-alternar-modo-livre');
+    const blocoEstruturado = document.getElementById('pep-bloco-estruturado');
+    const btnCancelarEdicaoEvo = document.getElementById('btn-cancelar-edicao-evo');
+
+    const MODELOS_PADRAO_EVOLUCAO = [
+        {
+            titulo: 'Oftalmologia — Consulta de Retina (Dr. Aroldo)',
+            queixa: 'Avaliação de Retina',
+            anamnese: 'ACM: Nega | AOP: Nega | HF Glaucoma: Nega',
+            exame: 'BIO AO: Olho calmo, CAF, pupilas isofotorreagentes, SRCA.\nFO AO: D.O. com contorno regular, vasos retinianos sem tortuosidade, vítreo transparente, retina aplicada, mácula livre.',
+            conduta: 'Oriento retorno anual e sinais de alarme.'
+        },
+        {
+            titulo: 'Oftalmologia — Consulta Oftalmológica Geral / Refração',
+            queixa: 'Revisão visual e refração',
+            anamnese: 'Paciente refere dificuldade visual progressiva para longe/perto.',
+            exame: 'BIO AO: Córnea clara, câmara anterior formada, cristalino transparente.\nFO AO: Papila fisiológica, mácula sem alterações.',
+            conduta: 'Prescrição de correção óptica e lubrificante ocular.'
+        },
+        {
+            titulo: 'Terapia Ocupacional — Evolução Sessão TEA / TDAH',
+            queixa: 'Sessão de Terapia Ocupacional',
+            anamnese: 'Criança comparece acompanhada pelo responsável, receptiva ao setting terapêutico.',
+            exame: 'Trabalhadas habilidades de integração sensorial, coordenação motora fina, práxis e autorregulação.',
+            conduta: 'Mantido plano terapêutico semanal e orientações à família.'
+        },
+        {
+            titulo: 'Psicologia — Sessão de Psicoterapia / ABA',
+            queixa: 'Acompanhamento Psicológico',
+            anamnese: 'Sessão focada em manejo comportamental, comunicação funcional e habilidades sociais.',
+            exame: 'Paciente colaborativo durante as intervenções propostas.',
+            conduta: 'Seguimento conforme plano multidisciplinar.'
+        }
+    ];
+
+    function atualizarListaModelosEvolucao() {
+        if (!selModeloEvo) return;
+        const salvos = JSON.parse(localStorage.getItem('vitalis_modelos_evolucao') || '[]');
+        const todos = [...MODELOS_PADRAO_EVOLUCAO, ...salvos];
+        selModeloEvo.innerHTML = '<option value="">📋 Carregar modelo de evolução (Ex: Consulta Retina, T.O., Pediatria)...</option>' +
+            todos.map((m, i) => `<option value="${i}">${escapeHTML(m.titulo)}</option>`).join('');
+    }
+    atualizarListaModelosEvolucao();
+
+    selModeloEvo?.addEventListener('change', () => {
+        const idx = selModeloEvo.value;
+        if (idx === '') return;
+        const salvos = JSON.parse(localStorage.getItem('vitalis_modelos_evolucao') || '[]');
+        const m = [...MODELOS_PADRAO_EVOLUCAO, ...salvos][Number(idx)];
+        if (!m) return;
+        const elQueixa = document.getElementById('pep-queixa');
+        const elAnamnese = document.getElementById('pep-anamnese');
+        const elExame = document.getElementById('pep-exame-fisico');
+        const elPresc = document.getElementById('pep-prescricao');
+        if (elQueixa) elQueixa.value = m.queixa || '';
+        if (elAnamnese) elAnamnese.value = m.anamnese || '';
+        if (elExame) elExame.value = m.exame || '';
+        if (elPresc) elPresc.value = m.conduta || '';
+        showToast(`Modelo "${m.titulo}" aplicado!`, 'info');
+    });
+
+    btnSalvarModeloEvo?.addEventListener('click', () => {
+        const nome = prompt('Digite o nome para salvar este modelo de evolução (Ex: Consulta Catarata):');
+        if (!nome || !nome.trim()) return;
+        const salvos = JSON.parse(localStorage.getItem('vitalis_modelos_evolucao') || '[]');
+        salvos.push({
+            titulo: nome.trim(),
+            queixa: document.getElementById('pep-queixa')?.value || '',
+            anamnese: document.getElementById('pep-anamnese')?.value || '',
+            exame: document.getElementById('pep-exame-fisico')?.value || '',
+            conduta: document.getElementById('pep-prescricao')?.value || ''
+        });
+        localStorage.setItem('vitalis_modelos_evolucao', JSON.stringify(salvos));
+        atualizarListaModelosEvolucao();
+        showToast('Modelo de evolução salvo com sucesso!', 'success');
+    });
+
+    btnModoLivre?.addEventListener('click', () => {
+        if (!blocoEstruturado) return;
+        const livreAtivo = blocoEstruturado.style.display === 'none';
+        blocoEstruturado.style.display = livreAtivo ? 'grid' : 'none';
+        ['pep-queixa', 'pep-anamnese', 'pep-exame-fisico'].forEach(id => {
+            const c = document.getElementById(id);
+            if (!c) return;
+            if (!livreAtivo) {
+                if (!c.value) c.value = 'Registro em modo livre';
+                c.removeAttribute('required');
+            } else {
+                if (c.value === 'Registro em modo livre') c.value = '';
+                c.setAttribute('required', 'required');
+            }
+        });
+        btnModoLivre.innerHTML = livreAtivo
+            ? '<i class="fa-solid fa-align-left"></i> Modo Texto Livre'
+            : '<i class="fa-solid fa-list-check"></i> Voltar ao Modo Estruturado';
+    });
+
+    btnCancelarEdicaoEvo?.addEventListener('click', () => {
+        sairModoEdicaoEvolucao();
+        document.getElementById('form-evolucao')?.reset();
+        showToast('Edição de evolução cancelada.', 'info');
+    });
+
+    document.getElementById('btn-abrir-memed')?.addEventListener('click', () => {
+        window.open('https://memed.com.br/', '_blank', 'noopener');
+        showToast('Abrindo plataforma de Prescrição Digital Memed (ICP-Brasil)...', 'info');
+    });
+
+    // Clique em Editar ou Excluir evolução do mesmo dia (até 23:59)
+    document.getElementById('prontuario-ativo')?.addEventListener('click', async (e) => {
+        const btnEditEvo = e.target.closest('.btn-editar-evo-hoje');
+        const btnDelEvo = e.target.closest('.btn-excluir-evo-hoje');
+        if (!btnEditEvo && !btnDelEvo) return;
+
+        const paciente = clinicaState.pacientes.find(p => String(p.id) === String(pacienteAtivoId));
+        if (!paciente) return;
+        const idx = Number((btnEditEvo || btnDelEvo).getAttribute('data-idx'));
+        const evo = paciente.evolucoes?.[idx];
+        if (!evo || !evolucaoEditavelHoje(evo)) {
+            showToast('Esta evolução já passou da meia-noite e está bloqueada para alterações.', 'error');
+            return;
+        }
+
+        if (btnDelEvo) {
+            const confirmar = await confirmarAcao(
+                'Deseja remover esta evolução registrada hoje (ex: lançada no paciente errado)? Após a meia-noite isso não será mais possível.',
+                { titulo: 'Excluir evolução de hoje', textoConfirmar: 'Excluir evolução' }
+            );
+            if (!confirmar) return;
+            paciente.evolucoes.splice(idx, 1);
+            await updateDoc(doc(db, 'pacientes', paciente.id), { evolucoes: paciente.evolucoes });
+            await registrarAuditoria({ acao: 'Exclusão', modulo: 'Prontuário', descricao: `Evolução do mesmo dia removida de ${paciente.nome}` });
+            renderizarEvolucoes(paciente);
+            renderizarResumoRapidoProntuario(paciente);
+            showToast('Evolução removida com sucesso.', 'success');
+            return;
+        }
+
+        if (btnEditEvo) {
+            const texto = decriptar(evo.texto);
+            const editIdx = document.getElementById('pep-evo-edit-index');
+            if (editIdx) editIdx.value = String(idx);
+            const badge = document.getElementById('pep-evo-editando-badge');
+            if (badge) badge.style.display = 'inline-block';
+            if (btnCancelarEdicaoEvo) btnCancelarEdicaoEvo.style.display = 'inline-flex';
+            const btnSubmit = document.getElementById('btn-submit-evolucao');
+            if (btnSubmit) btnSubmit.innerHTML = '<i class="fa-solid fa-pen-to-square"></i> Salvar Retificação de Hoje';
+
+            // Preenche os campos principais a partir do texto salvo
+            const qp = extrairCampoEvolucao(texto, ['Queixa Principal']);
+            const hda = extrairCampoEvolucao(texto, ['História da Doença Atual', 'Anamnese']);
+            const ef = extrairCampoEvolucao(texto, ['Exame Físico']);
+            const cidDiag = extrairCampoEvolucao(texto, ['Hipótese Diagnóstica', 'Suspeita Diagnóstica']);
+            const cond = extrairCampoEvolucao(texto, ['Conduta e Prescrição', 'Conduta']);
+
+            if (document.getElementById('pep-queixa')) document.getElementById('pep-queixa').value = qp || 'Retificação no mesmo dia';
+            if (document.getElementById('pep-anamnese')) document.getElementById('pep-anamnese').value = hda || texto;
+            if (document.getElementById('pep-exame-fisico')) document.getElementById('pep-exame-fisico').value = ef || '-';
+            if (document.getElementById('pep-diagnostico') && cidDiag) document.getElementById('pep-diagnostico').value = cidDiag;
+            if (document.getElementById('pep-prescricao')) document.getElementById('pep-prescricao').value = cond || texto;
+
+            document.querySelector('.tab-btn[data-tab="tab-evolucao"]')?.click();
+            document.getElementById('pep-prescricao')?.focus();
+            showToast('Modo de retificação ativado (permitido até 23:59 de hoje).', 'info');
+        }
+    });
 
     document.getElementById('btn-novo-paciente').addEventListener('click', () => {
         // Trava real (não só visual): o botão já fica oculto pro Doutor(a)
@@ -272,6 +486,7 @@ export function initPacientes() {
         document.getElementById('prontuario-ativo').style.display = 'none';
         const listaContainer = document.getElementById('lista-pacientes-container');
         if (listaContainer) listaContainer.style.display = 'block';
+        sairModoEdicaoEvolucao();
         aoFecharProntuario();
         aoFecharProntuarioAtendimento();
         pacienteAtivoId = null;
@@ -322,7 +537,7 @@ export function initPacientes() {
     }
 
     // ==========================================
-    // SALVAMENTO DE EVOLUÇÃO COM CRIPTOGRAFIA
+    // SALVAMENTO DE EVOLUÇÃO COM CRIPTOGRAFIA + VALIDAÇÃO CID + JANELA 24H
     // ==========================================
     document.getElementById('form-evolucao').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -331,9 +546,15 @@ export function initPacientes() {
         const paciente = clinicaState.pacientes.find(p => String(p.id) === String(pacienteAtivoId));
         const btnSalvar = e.target.querySelector('button[type="submit"]');
 
+        // TRAVA OBRIGATÓRIA DE CID-10 (Pedido Dr. Aroldo para Auditoria)
+        const cidValor = (document.getElementById('pep-cid')?.value || '').trim().toUpperCase();
+        if (!cidValor || cidValor.length < 3) {
+            showToast('O preenchimento do CID-10 é obrigatório para autorizar o fechamento do atendimento.', 'warning');
+            document.getElementById('pep-cid')?.focus();
+            return;
+        }
+
         await comEstadoDeCarregamento(btnSalvar, 'Assinando...', async () => {
-            // Sinais vitais precisam fazer sentido antes de assinar (ex: PA
-            // sistólica maior que a diastólica, saturação até 100%)
             const erroSinais = validarSinaisVitais();
             if (erroSinais) {
                 showToast(erroSinais, 'warning');
@@ -341,7 +562,12 @@ export function initPacientes() {
             }
             const sinaisVitais = lerSinaisVitais();
             const concluirConsulta = Boolean(document.getElementById('pep-concluir-consulta')?.checked);
-            const textoProntuario = montarTextoEvolucao();
+
+            let textoProntuario = montarTextoEvolucao();
+            const blocoOftalmo = montarBlocoOftalmologia();
+            if (blocoOftalmo) {
+                textoProntuario += `\n${blocoOftalmo}`;
+            }
 
             const textoCriptografado = encriptar(textoProntuario);
 
@@ -353,9 +579,48 @@ export function initPacientes() {
                 return;
             }
 
+            const editIdxStr = document.getElementById('pep-evo-edit-index')?.value ?? '';
+            const editandoMesmoDia = editIdxStr !== '' && paciente.evolucoes?.[Number(editIdxStr)];
+
+            if (editandoMesmoDia) {
+                const idx = Number(editIdxStr);
+                const evoOriginal = paciente.evolucoes[idx];
+                if (!evolucaoEditavelHoje(evoOriginal)) {
+                    showToast('Prazo de edição encerrado (após meia-noite). Registre uma nova evolução.', 'error');
+                    sairModoEdicaoEvolucao();
+                    return;
+                }
+
+                paciente.evolucoes[idx] = {
+                    ...evoOriginal,
+                    texto: textoCriptografado,
+                    editadoEm: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+                    ...(sinaisVitais ? { vitaisCripto: encriptar(JSON.stringify(sinaisVitais)) } : {})
+                };
+
+                try {
+                    await updateDoc(doc(db, "pacientes", paciente.id), { evolucoes: paciente.evolucoes });
+                    renderizarEvolucoes(paciente);
+                    renderizarResumoRapidoProntuario(paciente);
+                    sairModoEdicaoEvolucao();
+                    e.target.reset();
+                    if (clinicaState.sessao.perfil === 'Doutor(a)') {
+                        document.getElementById('pep-profissional').value = profId;
+                    }
+                    aoSalvarEvolucao(paciente);
+                    showToast('Evolução de hoje retificada com sucesso!', 'success');
+                    await registrarAuditoria({ acao: 'Edição', modulo: 'Prontuário', descricao: `Evolução do mesmo dia retificada para ${paciente.nome} por ${profissional.nome} (CID: ${cidValor})` });
+                } catch (error) {
+                    console.error("Erro ao retificar evolução: ", error);
+                    showToast('Erro de conexão ao salvar retificação.', 'error');
+                }
+                return;
+            }
+
             const novaEvolucao = {
                 data: new Date().toLocaleString('pt-BR'),
                 dataISO: new Date().toISOString(),
+                cid: cidValor,
                 texto: textoCriptografado,
                 profissionalId: String(profissional.id),
                 assinatura: `Assinado digitalmente por ${profissional.nome} | ${profissional.conselho}: ${profissional.registro}`
@@ -369,12 +634,7 @@ export function initPacientes() {
             if (!paciente.evolucoes) paciente.evolucoes = [];
             paciente.evolucoes.push(novaEvolucao);
 
-            // Se o médico informou "retornar em X dias", calcula a data e
-            // grava no paciente (fora do texto criptografado, pra poder
-            // usar direto num painel de "Revisões Pendentes" no Dashboard)
             const diasRetornoInput = document.getElementById('pep-retorno-dias').value;
-            // arrayUnion ACRESCENTA a evolução no banco em vez de reescrever a lista
-            // inteira: se duas telas salvarem ao mesmo tempo, nenhuma evolução se perde.
             const dadosAtualizados = { evolucoes: arrayUnion(novaEvolucao), ...camposParaLiberarTrava(paciente.id) };
 
             if (diasRetornoInput) {
@@ -389,9 +649,6 @@ export function initPacientes() {
                 const pacienteRef = doc(db, "pacientes", paciente.id);
                 await updateDoc(pacienteRef, dadosAtualizados);
 
-                // Se um retorno foi marcado, avisa a recepção AGORA MESMO -
-                // não espera o paciente entrar na lista de "atrasados" lá na
-                // frente, a pendência de agendar já nasce na hora certa.
                 if (diasRetornoInput) {
                     const dataExibicao = paciente.proximoRetorno.split('-').reverse().join('/');
                     await criarNotificacao({
@@ -405,6 +662,7 @@ export function initPacientes() {
                 
                 renderizarEvolucoes(paciente);
                 renderizarResumoRapidoProntuario(paciente);
+                sairModoEdicaoEvolucao();
                 e.target.reset(); 
                 
                 if (clinicaState.sessao.perfil === 'Doutor(a)') {
@@ -417,7 +675,7 @@ export function initPacientes() {
                     const concluida = await concluirConsultaDeHoje(paciente, profissional);
                     if (concluida) showToast('Consulta marcada como concluída na agenda.', 'success');
                 }
-                await registrarAuditoria({ acao: 'Criação', modulo: 'Prontuário', descricao: `Evolução registrada para ${paciente.nome} por ${profissional.nome}` });
+                await registrarAuditoria({ acao: 'Criação', modulo: 'Prontuário', descricao: `Evolução registrada para ${paciente.nome} por ${profissional.nome} (CID: ${cidValor})` });
             } catch (error) {
                 console.error("Erro ao salvar evolução: ", error);
                 showToast('Erro de conexão ao salvar ficha.', 'error');
@@ -428,10 +686,6 @@ export function initPacientes() {
 
     // ==========================================
     // EXAMES SOLICITADOS
-    // Aba independente da evolução: registra a solicitação no prontuário
-    // (criptografada, como o restante do histórico clínico) e dispara uma
-    // notificação em tempo real para a recepção conseguir oferecer o
-    // agendamento ainda com o paciente na clínica.
     // ==========================================
     const formExames = document.getElementById('form-exames-solicitados');
     if (formExames) {
@@ -445,7 +699,7 @@ export function initPacientes() {
             const profId = document.getElementById('pep-profissional').value;
             const profissional = clinicaState.profissionais.find(p => String(p.id) === String(profId));
             if (!profissional) {
-                showToast('Selecione o profissional responsável na aba "Nova Evolução" antes de solicitar exames.', 'warning');
+                showToast('Selecione o profissional responsável na aba "Atendimento" antes de solicitar exames.', 'warning');
                 return;
             }
 
@@ -469,10 +723,6 @@ export function initPacientes() {
                 try {
                     await updateDoc(doc(db, "pacientes", paciente.id), { examesSolicitados: paciente.examesSolicitados });
 
-                    // Notificação em texto simples (não criptografada) - mesmo
-                    // padrão já usado no aviso de retorno pendente: é um recado
-                    // operacional de curta duração pra recepção agir, não um
-                    // dado de prontuário de longo prazo.
                     await criarNotificacao({
                         tipo: 'exame_solicitado',
                         titulo: `Exame(s) solicitado(s): ${paciente.nome}`,
@@ -496,12 +746,6 @@ export function initPacientes() {
 
     // ==========================================
     // EXAMES / IMAGENS ANEXADAS AO PRONTUÁRIO
-    // Diferente da aba "Exames Solicitados" (que só registra o PEDIDO do
-    // exame): aqui entra o RESULTADO já realizado - laudo em PDF, foto de
-    // raio-X, exame de imagem etc. O arquivo em si vai pro Storage (mesmo
-    // padrão dos anexos de cadastro, sem criptografia); só a descrição
-    // (dado clínico em texto livre) é criptografada como o restante do
-    // histórico.
     // ==========================================
     const formImagensExame = document.getElementById('form-imagens-exame');
     if (formImagensExame) {
@@ -522,7 +766,7 @@ export function initPacientes() {
             const profId = document.getElementById('pep-profissional').value;
             const profissional = clinicaState.profissionais.find(p => String(p.id) === String(profId));
             if (!profissional) {
-                showToast('Selecione o profissional responsável na aba "Nova Evolução" antes de anexar exames.', 'warning');
+                showToast('Selecione o profissional responsável na aba "Atendimento" antes de anexar exames.', 'warning');
                 return;
             }
 
@@ -530,9 +774,6 @@ export function initPacientes() {
                 const descricao = inputDescricao.value.trim();
                 const novosItens = [];
 
-                // Envia todos os arquivos ANTES de gravar no Firestore - se algum
-                // upload falhar, nada é salvo pela metade (mesmo padrão do
-                // cadastro de paciente).
                 try {
                     for (const arquivo of inputArquivo.files) {
                         const url = await uploadAnexo(arquivo, `prontuario/${paciente.id}`);
@@ -629,8 +870,6 @@ export function initPacientes() {
                 return;
             }
 
-            // Paciente em atendimento (cronômetro rodando): a recepção não edita nem
-            // exclui; o admin pode, mas com aviso. As regras do Firestore reforçam.
             if (btnEditar || btnExcluir) {
                 const idAlvo = (btnEditar || btnExcluir).getAttribute('data-id');
                 const trava = await pacienteEmAtendimentoAgora(idAlvo);
@@ -685,8 +924,6 @@ export function initPacientes() {
                     document.getElementById('cad-emergencia').value = paciente.emergencia || '';
                     document.getElementById('cad-responsavel').value = paciente.responsavel || '';
 
-                    // Carrega os anexos já enviados (abrirModalCadastro zerou o
-                    // estado acima - aqui sobrescrevemos com os dados reais)
                     anexosEmEdicao = paciente.anexos
                         ? { foto: paciente.anexos.foto || null, documento: paciente.anexos.documento || null, outros: [...(paciente.anexos.outros || [])] }
                         : { foto: null, documento: null, outros: [] };
@@ -735,9 +972,7 @@ export function initPacientes() {
     }
 
     // ==========================================
-    // ENCAMINHAMENTO: mostra o seletor de especialidade só quando o
-    // documento escolhido é "Encaminhamento Especializado", e gera um
-    // texto padrão pronto para revisão do médico antes de imprimir.
+    // ENCAMINHAMENTO
     // ==========================================
     const selTipoDocumento = document.getElementById('tipo-documento-impressao');
     const grupoEspecialidade = document.getElementById('grupo-especialidade-encaminhamento');
@@ -784,15 +1019,9 @@ export function initPacientes() {
             document.getElementById('print-medico-nome').textContent = profissional.nome;
             document.getElementById('print-medico-registro').textContent = `${profissional.conselho}: ${profissional.registro}`;
 
-            // Sinaliza pro CSS de impressão (@media print) que é o Receituário
-            // que deve aparecer - ele usa folha A4, diferente do Prontuário
-            // (A5, ver btn-imprimir-pep) que compartilha a mesma tela.
             document.body.setAttribute('data-impressao', 'receita');
             window.print();
 
-            // ENCAMINHAMENTO ESPECIALIZADO: avisa a recepção pra ela já
-            // oferecer o agendamento com o especialista antes do paciente
-            // sair da clínica - mesmo padrão usado pra exames solicitados.
             if (tipoDoc === 'ENCAMINHAMENTO MÉDICO') {
                 const especialidade = document.getElementById('encaminhamento-especialidade').value;
                 await criarNotificacao({
@@ -834,10 +1063,7 @@ export function initPacientes() {
 }
 
 // ==========================================
-// ANEXOS DO PACIENTE (foto, documento de identidade, outros)
-// Armazenados no Firebase Storage; a URL de download fica salva no
-// próprio documento do paciente (não são dados sensíveis, então não
-// passam por encriptar()/decriptar() como os demais campos).
+// ANEXOS DO PACIENTE
 // ==========================================
 const ROTULOS_ANEXO = { foto: 'Foto do paciente', documento: 'Documento de identidade' };
 
@@ -872,8 +1098,6 @@ function renderizarAnexosExistentes() {
     container.innerHTML = html;
 }
 
-// Envia um arquivo para o Storage em pacientes/{clinicaId}/{subpasta}/... e
-// devolve a URL pública de download já salva no cadastro do paciente.
 async function uploadAnexo(file, subpasta) {
     const nomeSeguro = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
     const caminho = `pacientes/${clinicaState.sessao.clinicaId}/${subpasta}/${Date.now()}_${nomeSeguro}`;
@@ -882,17 +1106,10 @@ async function uploadAnexo(file, subpasta) {
     return await getDownloadURL(arquivoRef);
 }
 
-// opcoes.aba: id da aba a abrir (ex: 'tab-evolucao' quando vem do "Atender" da fila)
-// Data local YYYY-MM-DD (mesmo formato da Agenda; toISOString() daria o dia
-// seguinte à noite no Brasil, por causa do UTC)
 function dataLocalISO(d = new Date()) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-// Ao assinar a evolução, conclui na agenda a consulta de HOJE deste paciente
-// com este profissional (a mesma regra do botão "Concluído" da Agenda: se
-// houver valor a cobrar e ainda não estiver pago, fica pendente e a Recepção
-// recebe o aviso de pagamento). Nunca derruba a evolução: se falhar, só avisa.
 async function concluirConsultaDeHoje(paciente, profissional) {
     try {
         const snap = await getDocs(query(
@@ -912,7 +1129,7 @@ async function concluirConsultaDeHoje(paciente, profissional) {
                 || (x.hora || '').localeCompare(y.hora || ''));
 
         const ag = candidatos[0];
-        if (!ag) return false; // paciente sem consulta marcada hoje com este profissional
+        if (!ag) return false;
 
         const valor = Number(ag.valorAtendimento || 0);
         const jaPaga = ag.statusPagamento === 'pago';
@@ -948,8 +1165,6 @@ async function concluirConsultaDeHoje(paciente, profissional) {
 }
 
 export function abrirProntuario(idPaciente, opcoes = {}) {
-    // Trava real (não só visual): apenas médicos acessam prontuário de jeito
-    // nenhum, mesmo que o botão apareça por algum outro caminho.
     if (clinicaState.sessao.perfil !== 'Doutor(a)') {
         showToast('Acesso ao prontuário é restrito exclusivamente a médicos.', 'error');
         return;
@@ -964,6 +1179,7 @@ export function abrirProntuario(idPaciente, opcoes = {}) {
         document.querySelector('[data-target="pacientes"]').classList.add('active');
         
         pacienteAtivoId = paciente.id;
+        sairModoEdicaoEvolucao();
         
         const selProf = document.getElementById('pep-profissional');
         if (selProf) {
@@ -982,6 +1198,10 @@ export function abrirProntuario(idPaciente, opcoes = {}) {
                 selProf.value = profsPermitidos[0].id;
                 selProf.style.pointerEvents = 'none'; 
                 selProf.style.backgroundColor = '#e2e8f0'; 
+                // Abre automaticamente o bloco de Oftalmologia se a especialidade do médico for Oftalmo
+                // const esp = (profsPermitidos[0].especialidade || '').toLowerCase();
+                // const blocoOft = document.getElementById('pep-bloco-oftalmo');
+                // if (blocoOft) blocoOft.open = esp.includes('oftalmo') || esp.includes('retina');
             } else {
                 selProf.style.pointerEvents = 'auto';
                 selProf.style.backgroundColor = '';
@@ -996,26 +1216,17 @@ export function abrirProntuario(idPaciente, opcoes = {}) {
         aoAbrirProntuario(paciente, opcoes.aba);
         aoAbrirProntuarioAtendimento(paciente);
 
-        // Reseta o gerador de documentos ao trocar de paciente, para não
-        // arrastar um texto de encaminhamento gerado para outra pessoa
         const grupoEspecialidade = document.getElementById('grupo-especialidade-encaminhamento');
         if (grupoEspecialidade) grupoEspecialidade.style.display = 'none';
         const textoReceita = document.getElementById('texto-receita');
         if (textoReceita) textoReceita.value = '';
         resetarSeletorModelo(paciente);
 
-        // Reseta o formulário de anexo de exame/imagem ao trocar de paciente,
-        // pra não arrastar arquivo/descrição selecionados para outra pessoa
         const formImagensExameReset = document.getElementById('form-imagens-exame');
         if (formImagensExameReset) formImagensExameReset.reset();
         
         const areaHistorico = document.querySelector('.pep-historico'); 
         const formEvolucao = document.querySelector('.pep-nova-evolucao'); 
-        // Aba de Exames Solicitados é clínica (mesmo nível de sigilo da
-        // evolução) - só aparece pra quem está logado como Doutor(a).
-        // Escondida por id, não pela classe .pep-nova-evolucao/.pep-historico,
-        // porque essas classes já se repetem em outros blocos da tela e
-        // querySelector só pegaria o primeiro elemento.
         const tabBtnExames = document.getElementById('tab-btn-exames');
         const tabBtnImagens = document.getElementById('tab-btn-imagens');
         
@@ -1038,9 +1249,6 @@ export function abrirProntuario(idPaciente, opcoes = {}) {
     }
 }
 
-// Resumo rápido no topo da aba "Nova Evolução": mostra a última consulta
-// (data, suspeita diagnóstica e conduta) pra o médico relembrar o caso sem
-// abrir o Histórico Clínico. Tudo vem da última evolução já descriptografada.
 function extrairCampoEvolucao(texto, rotulos) {
     const alternativas = rotulos.join('|');
     const re = new RegExp('\\*\\*(?:' + alternativas + ')[^*]*:\\*\\*\\s*([\\s\\S]*?)(?=\\n\\s*\\*\\*|$)', 'i');
@@ -1082,28 +1290,43 @@ function renderizarResumoRapidoProntuario(paciente) {
 
 function renderizarEvolucoes(paciente) {
     const container = document.getElementById('pep-timeline');
-    
-    container.innerHTML = paciente.evolucoes.slice().reverse().map(evo => {
+    const containerLateral = document.getElementById('pep-timeline-lateral');
+    const lista = paciente.evolucoes || [];
+
+    const html = lista.map((evo, idxOriginal) => ({ evo, idxOriginal })).reverse().map(({ evo, idxOriginal }) => {
         const textoDescriptografado = decriptar(evo.texto);
 
-        let textoFormatado = escapeHTML(textoDescriptografado)
+        const textoFormatado = escapeHTML(textoDescriptografado)
             .replace(/\n/g, '<br>')
             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-            
+
+        const podeMexerHoje = clinicaState.sessao.perfil === 'Doutor(a)' && evolucaoEditavelHoje(evo);
+        const botoesHoje = podeMexerHoje ? `
+            <span class="evo-acoes-dia">
+                <button type="button" class="btn-evo-mini btn-editar-evo-hoje" data-idx="${idxOriginal}" title="Editar até 23:59 de hoje">
+                    <i class="fa-solid fa-pen"></i> Editar
+                </button>
+                <button type="button" class="btn-evo-mini danger btn-excluir-evo-hoje" data-idx="${idxOriginal}" title="Remover evolução lançada no paciente errado">
+                    <i class="fa-solid fa-trash"></i>
+                </button>
+            </span>` : `<span class="assinatura-meta" title="Prontuário fechado após meia-noite"><i class="fa-solid fa-shield-halved"></i> Fechado</span>`;
+
         return `
-        <details class="timeline-item">
+        <details class="timeline-item" open>
             <summary class="timeline-meta">
-                <span><i class="fa-regular fa-calendar"></i> <strong>${evo.data}</strong></span>
+                <span><i class="fa-regular fa-calendar"></i> <strong>${escapeHTML(evo.data)}</strong> ${evo.editadoEm ? `<small>(retificado às ${escapeHTML(evo.editadoEm)})</small>` : ''}</span>
                 <span class="assinatura-meta"><i class="fa-solid fa-lock"></i> ${escapeHTML(evo.assinatura)}</span>
                 ${evo.duracaoSegundos ? `<span class="assinatura-meta"><i class="fa-regular fa-clock"></i> Duração: ${formatarDuracaoCurta(evo.duracaoSegundos)}</span>` : ''}
+                ${botoesHoje}
             </summary>
             <div class="timeline-content">${textoFormatado}</div>
         </details>
-    `}).join('') || '<p>Sem registros anteriores.</p>';
+    `}).join('') || '<p style="color:var(--text-light); padding:12px;">Sem registros anteriores.</p>';
+
+    if (container) container.innerHTML = html;
+    if (containerLateral) containerLateral.innerHTML = html;
 }
 
-// Histórico de exames solicitados no prontuário - mesma lógica de
-// criptografia/descriptografia das evoluções (dado clínico, texto livre).
 function renderizarExamesSolicitados(paciente) {
     const container = document.getElementById('pep-exames-timeline');
     if (!container) return;
@@ -1122,8 +1345,6 @@ function renderizarExamesSolicitados(paciente) {
     }).join('') || '<p style="color: var(--text-light); text-align: center; padding: 20px;">Nenhum exame solicitado ainda.</p>';
 }
 
-// Galeria de exames/imagens anexadas ao prontuário - miniatura pra imagem,
-// ícone de PDF pra documentos, com a descrição (criptografada) legível.
 function renderizarImagensExames(paciente) {
     const container = document.getElementById('pep-imagens-grid');
     if (!container) return;
@@ -1179,7 +1400,6 @@ export function renderizarResumoPacienteAtivo() {
         }
     }
 
-    // Foto do paciente no avatar (se houver anexo) e links dos demais anexos
     const elAvatar = document.getElementById('pep-avatar');
     if (elAvatar) {
         elAvatar.innerHTML = paciente.anexos && paciente.anexos.foto
@@ -1198,13 +1418,11 @@ export function renderizarResumoPacienteAtivo() {
 }
 
 // ==========================================
-// CADASTRO ATIVO DO PACIENTE (automático, com base na última consulta)
+// CADASTRO ATIVO DO PACIENTE
 // ==========================================
 const MESES_PARA_INATIVIDADE = 6;
 
 function obterStatusAtividade(pacienteId) {
-    // Consultas canceladas não contam como "última consulta" - agora que o
-    // cancelamento não apaga mais o registro, é preciso ignorá-las aqui.
     const consultas = clinicaState.agenda.agendamentos.filter(a => String(a.pacId) === String(pacienteId) && a.status !== 'cancelado');
 
     if (consultas.length === 0) {

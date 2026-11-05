@@ -87,6 +87,16 @@ service cloud.firestore {
       allow delete: if daMinhaClinica() && (ehAdmin() || (ehRecepcao() && !emAtendimento()));
     }
 
+    // ---------- Anexos de Exames em Base64 (1 doc por imagem) ----------
+    match /exames_anexos/{id} {
+      allow read:   if daMinhaClinica() && (ehAdmin() || ehDoutor());
+      allow create: if criaNaMinhaClinica() && (ehAdmin() || ehDoutor())
+        && request.resource.data.base64 is string
+        && request.resource.data.base64.size() <= 900000; // trava de segurança (< 900KB)
+      allow update: if false;
+      allow delete: if daMinhaClinica() && (ehAdmin() || ehDoutor());
+    }
+
     // ---------- Equipe ----------
     match /profissionais/{id} {
       allow read:   if daMinhaClinica();

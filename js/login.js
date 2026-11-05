@@ -193,6 +193,7 @@ export function initAuth() {
                 await carregarPacientes();
                 // Só carrega o que o perfil pode ler (as regras do Firestore
                 // bloqueiam o resto e gerariam erro na tela):
+                await carregarConfigClinica();
                 //  - Financeiro/Custos Fixos: só admin (recepção só lança)
                 //  - Estoque: admin e recepção
                 const perfilLogado = clinicaState.sessao.perfil;
@@ -417,6 +418,7 @@ function aplicarPermissoesDeTela() {
     const btnFin = document.querySelector('.menu-btn[data-target="financeiro"]');
     const btnEst = document.querySelector('.menu-btn[data-target="estoque"]');
     const btnAudit = document.getElementById('btn-menu-auditoria');
+    const btnConfig = document.getElementById('btn-menu-config');
     const btnPainelMedico = document.getElementById('btn-menu-painel-medico');
 
     // Dentro de Pacientes & Prontuários: o Doutor(a) só consulta - cadastro
@@ -490,6 +492,7 @@ function aplicarPermissoesDeTela() {
     else if (perfil === 'admin') {
         // Só o Administrador tem acesso ao log de auditoria
         if(btnAudit) btnAudit.style.display = 'flex';
+        if(btnConfig) btnConfig.style.display = 'flex';
     }
 
     // Re-renderiza a Central de Ajuda já filtrada para este perfil - no

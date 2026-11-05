@@ -758,6 +758,11 @@ export function initPacientes() {
             const inputDescricao = document.getElementById('pep-imagem-descricao');
             const btnSalvar = e.target.querySelector('button[type="submit"]');
 
+            if (!paciente) {
+                showToast('Não foi possível localizar o paciente ativo.', 'error');
+                return;
+            }
+
             if (!inputArquivo.files || inputArquivo.files.length === 0) {
                 showToast('Selecione ao menos um arquivo.', 'warning');
                 return;
@@ -770,42 +775,33 @@ export function initPacientes() {
                 return;
             }
 
-            await comEstadoDeCarregamento(btnSalvar, 'Enviando...', async () => {
-                const descricao = inputDescricao.value.trim();
-                const novosItens = [];
-
+            await comEstadoDeCarregamento(btnSalvar, 'Comprimindo e salvando...', async () => {
+                const descricaoCripto = encriptar(inputDescricao.value.trim());
                 try {
                     for (const arquivo of inputArquivo.files) {
-                        const url = await uploadAnexo(arquivo, `prontuario/${paciente.id}`);
-                        novosItens.push({
-                            url,
+                        const base64 = await comprimirExameParaBase64(arquivo, 1280, 0.78);
+                        if (base64.length > 900000) {
+                            throw new Error(`A imagem "${arquivo.name}" excede o limite após a compressão.`);
+                        }
+
+                        await addDoc(collection(db, "exames_anexos"), {
+                            clinicaId: clinicaState.sessao.clinicaId,
+                            pacienteId: String(paciente.id),
                             nomeArquivo: arquivo.name,
-                            tipo: arquivo.type || '',
-                            descricaoCripto: encriptar(descricao),
+                            base64,
+                            descricaoCripto,
                             data: new Date().toLocaleString('pt-BR'),
+                            criadoEmISO: new Date().toISOString(),
                             profissional: profissional.nome
                         });
                     }
-                } catch (uploadError) {
-                    console.error("Erro ao enviar exame/imagem: ", uploadError);
-                    showToast('Falha ao enviar o(s) arquivo(s). Nada foi salvo no prontuário.', 'error');
-                    return;
-                }
-
-                if (!paciente.imagensExames) paciente.imagensExames = [];
-                paciente.imagensExames.push(...novosItens);
-
-                try {
-                    await updateDoc(doc(db, "pacientes", paciente.id), { imagensExames: paciente.imagensExames });
-
-                    renderizarImagensExames(paciente);
                     e.target.reset();
-                    showToast('Exame(s)/imagem(ns) anexado(s) ao prontuário com sucesso!', 'success');
-                    await registrarAuditoria({ acao: 'Criação', modulo: 'Prontuário', descricao: `Exame/imagem anexado para ${paciente.nome} (${novosItens.length} arquivo(s))` });
+                    await carregarImagensExamesDoPaciente(paciente.id);
+                    showToast('Exame(s) salvo(s) no prontuário com sucesso!', 'success');
+                    await registrarAuditoria({ acao: 'Criação', modulo: 'Prontuário', descricao: `Exame em imagem anexado para ${paciente.nome}` });
                 } catch (error) {
-                    console.error("Erro ao salvar exame/imagem no prontuário: ", error);
-                    showToast('Erro de conexão ao salvar no prontuário.', 'error');
-                    paciente.imagensExames.splice(paciente.imagensExames.length - novosItens.length, novosItens.length);
+                    console.error("Erro ao salvar imagem Base64:", error);
+                    showToast('Erro ao processar ou salvar a imagem. Verifique se escolheu uma foto válida e dentro do limite.', 'error');
                 }
             });
         });
@@ -818,31 +814,21 @@ export function initPacientes() {
             const btnExcluir = e.target.closest('.btn-excluir-imagem-exame');
             if (!btnExcluir || !pacienteAtivoId) return;
 
-            const idx = parseInt(btnExcluir.getAttribute('data-idx'));
-            const paciente = clinicaState.pacientes.find(p => String(p.id) === String(pacienteAtivoId));
-            if (!paciente || !paciente.imagensExames || !paciente.imagensExames[idx]) return;
+            const docId = btnExcluir.getAttribute('data-id');
+            if (!docId) return;
 
-            if (await confirmarAcao('Deseja realmente excluir este exame/imagem do prontuário?', { titulo: 'Excluir anexo', textoConfirmar: 'Excluir' })) {
-                const item = paciente.imagensExames[idx];
-                const copiaAnterior = [...paciente.imagensExames];
-                paciente.imagensExames.splice(idx, 1);
-
+            if (await confirmarAcao('Deseja realmente excluir este exame do prontuário?', { titulo: 'Excluir anexo', textoConfirmar: 'Excluir' })) {
                 try {
-                    await updateDoc(doc(db, "pacientes", paciente.id), { imagensExames: paciente.imagensExames });
-
-                    try {
-                        await deleteObject(ref(storage, item.url));
-                    } catch (removeError) {
-                        console.error("Erro ao remover arquivo do Storage: ", removeError);
-                    }
-
-                    renderizarImagensExames(paciente);
+                    await deleteDoc(doc(db, "exames_anexos", docId));
+                    await carregarImagensExamesDoPaciente(pacienteAtivoId);
                     showToast('Anexo removido do prontuário.', 'success');
-                    await registrarAuditoria({ acao: 'Exclusão', modulo: 'Prontuário', descricao: `Exame/imagem removido de ${paciente.nome}: ${item.nomeArquivo}` });
+                    const paciente = clinicaState.pacientes.find(p => String(p.id) === String(pacienteAtivoId));
+                    if (paciente) {
+                        await registrarAuditoria({ acao: 'Exclusão', modulo: 'Prontuário', descricao: `Exame em imagem removido de ${paciente.nome}` });
+                    }
                 } catch (error) {
-                    console.error("Erro ao excluir exame/imagem: ", error);
-                    showToast('Erro de conexão ao excluir.', 'error');
-                    paciente.imagensExames = copiaAnterior;
+                    console.error("Erro ao excluir exame Base64:", error);
+                    showToast('Erro ao excluir anexo.', 'error');
                 }
             }
         });
@@ -1211,7 +1197,7 @@ export function abrirProntuario(idPaciente, opcoes = {}) {
         renderizarEvolucoes(paciente);
         renderizarResumoRapidoProntuario(paciente);
         renderizarExamesSolicitados(paciente);
-        renderizarImagensExames(paciente);
+        carregarImagensExamesDoPaciente(paciente.id);
         renderizarResumoPacienteAtivo();
         aoAbrirProntuario(paciente, opcoes.aba);
         aoAbrirProntuarioAtendimento(paciente);
@@ -1345,32 +1331,104 @@ function renderizarExamesSolicitados(paciente) {
     }).join('') || '<p style="color: var(--text-light); text-align: center; padding: 20px;">Nenhum exame solicitado ainda.</p>';
 }
 
-function renderizarImagensExames(paciente) {
+function comprimirExameParaBase64(file, maxDim = 1280, qualidade = 0.78) {
+    return new Promise((resolve, reject) => {
+        if (!file || !file.type.startsWith('image/')) {
+            reject(new Error('Envie apenas arquivos de imagem (JPG, PNG, WebP).'));
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            if (typeof e.target.result !== 'string') {
+                reject(new Error('Não foi possível ler o arquivo de imagem.'));
+                return;
+            }
+
+            const img = new Image();
+            img.onload = () => {
+                let { width, height } = img;
+                if (width > maxDim || height > maxDim) {
+                    if (width > height) {
+                        height = Math.round((height * maxDim) / width);
+                        width = maxDim;
+                    } else {
+                        width = Math.round((width * maxDim) / height);
+                        height = maxDim;
+                    }
+                }
+
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    reject(new Error('Não foi possível processar a imagem.'));
+                    return;
+                }
+
+                ctx.drawImage(img, 0, 0, width, height);
+                resolve(canvas.toDataURL('image/jpeg', qualidade));
+            };
+            img.onerror = () => reject(new Error('Não foi possível carregar a imagem.'));
+            img.src = e.target.result;
+        };
+        reader.onerror = () => reject(new Error('Não foi possível ler o arquivo de imagem.'));
+        reader.readAsDataURL(file);
+    });
+}
+
+async function carregarImagensExamesDoPaciente(pacienteId) {
+    const container = document.getElementById('pep-imagens-grid');
+    if (container && String(pacienteAtivoId) === String(pacienteId)) {
+        container.innerHTML = '<p style="color:var(--text-light); padding:15px;">Carregando anexos...</p>';
+    }
+
+    try {
+        const q = query(
+            collection(db, "exames_anexos"),
+            where("clinicaId", "==", clinicaState.sessao.clinicaId),
+            where("pacienteId", "==", String(pacienteId))
+        );
+        const snap = await getDocs(q);
+        const lista = [];
+        snap.forEach(d => lista.push({ ...d.data(), id: String(d.id) }));
+        lista.sort((a, b) => (b.criadoEmISO || '').localeCompare(a.criadoEmISO || ''));
+        if (String(pacienteAtivoId) === String(pacienteId)) renderizarImagensExames(lista);
+    } catch (err) {
+        console.error("Erro ao carregar exames Base64:", err);
+        if (container && String(pacienteAtivoId) === String(pacienteId)) {
+            container.innerHTML = '<p style="color:var(--text-light); padding:15px;">Erro ao carregar anexos.</p>';
+        }
+    }
+}
+
+function renderizarImagensExames(lista = []) {
     const container = document.getElementById('pep-imagens-grid');
     if (!container) return;
 
-    const lista = paciente.imagensExames || [];
+    if (lista.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-light); text-align: center; padding: 20px;">Nenhum exame ou imagem anexada ainda.</p>';
+        return;
+    }
 
-    container.innerHTML = lista.map((item, idx) => {
-        const ehImagem = (item.tipo || '').startsWith('image/');
+    container.innerHTML = lista.map((item) => {
         const descricao = item.descricaoCripto ? decriptar(item.descricaoCripto) : '';
-        const preview = ehImagem
-            ? `<a href="${item.url}" target="_blank" rel="noopener"><img src="${item.url}" alt="${escapeHTML(item.nomeArquivo)}"></a>`
-            : `<a href="${item.url}" target="_blank" rel="noopener" class="pep-imagem-arquivo-icone"><i class="fa-solid fa-file-pdf"></i></a>`;
-
         return `
         <div class="pep-imagem-card">
-            ${preview}
+            <a href="${escapeHTML(item.base64 || '')}" download="${escapeHTML(item.nomeArquivo || 'exame.jpg')}" title="Clique para baixar/ampliar">
+                <img src="${escapeHTML(item.base64 || '')}" alt="${escapeHTML(item.nomeArquivo || 'Exame')}">
+            </a>
             <div class="pep-imagem-info">
-                <strong title="${escapeHTML(item.nomeArquivo)}">${escapeHTML(item.nomeArquivo)}</strong>
+                <strong title="${escapeHTML(item.nomeArquivo || '')}">${escapeHTML(item.nomeArquivo || '')}</strong>
                 ${descricao ? `<span class="pep-imagem-descricao">${escapeHTML(descricao)}</span>` : ''}
-                <small>${escapeHTML(item.profissional)} · ${escapeHTML(item.data)}</small>
+                <small>${escapeHTML(item.profissional || '')} · ${escapeHTML(item.data || '')}</small>
             </div>
-            <button type="button" class="btn-action btn-delete btn-excluir-imagem-exame" data-idx="${idx}" title="Excluir anexo">
+            <button type="button" class="btn-action btn-delete btn-excluir-imagem-exame" data-id="${escapeHTML(item.id)}" title="Excluir anexo">
                 <i class="fa-solid fa-trash"></i>
             </button>
         </div>`;
-    }).join('') || '<p style="color: var(--text-light); text-align: center; padding: 20px;">Nenhum exame ou imagem anexada ainda.</p>';
+    }).join('');
 }
 
 export function renderizarResumoPacienteAtivo() {

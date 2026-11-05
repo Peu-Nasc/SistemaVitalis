@@ -409,12 +409,7 @@
                                 <button class="tab-btn" data-tab="tab-historico"><i class="fa-solid fa-clock-rotate-left"></i> Histórico Clínico</button>
                                 <button class="tab-btn" data-tab="tab-antecedentes"><i class="fa-solid fa-book-medical"></i> Antecedentes</button>
                                 <button class="tab-btn" data-tab="tab-exames" id="tab-btn-exames"><i class="fa-solid fa-flask-vial"></i> Exames</button>
-                                <!-- DESATIVADO TEMPORARIAMENTE: upload de imagem/resultado no
-                                     prontuário ainda não está funcionando (falta o conteúdo da
-                                     aba tab-imagens e a lógica de upload em pacientes.js).
-                                     Reative removendo este comentário quando a funcionalidade
-                                     estiver pronta e testada. -->
-                                <!-- <button class="tab-btn" data-tab="tab-imagens" id="tab-btn-imagens"><i class="fa-solid fa-file-medical"></i> Exames / Imagens</button> -->
+                                <button class="tab-btn" data-tab="tab-imagens" id="tab-btn-imagens"><i class="fa-solid fa-file-medical"></i> Exames / Imagens</button>
                                 <button class="tab-btn" data-tab="tab-receita"><i class="fa-solid fa-file-prescription"></i> Documentos e Receituário</button>
                             </div>
 
@@ -614,15 +609,15 @@
 
                             <!-- ABA: EXAMES / IMAGENS ANEXADAS -->
                             <!-- Diferente da aba "Exames Solicitados" (que só registra o
-                                 PEDIDO do exame): aqui entra o RESULTADO já realizado -
-                                 laudo em PDF, foto de raio-X, exame de imagem, etc. -->
+                                 PEDIDO do exame): aqui entra o RESULTADO já realizado
+                                 como imagem, por exemplo uma foto de raio-X. -->
                             <div id="tab-imagens" class="tab-content">
                                 <div class="pep-nova-evolucao">
                                     <h4>Anexar Exame / Imagem</h4>
                                     <form id="form-imagens-exame" class="form-grid">
                                         <div class="form-group full-width">
-                                            <label>Arquivo(s) - foto, exame de imagem ou PDF *</label>
-                                            <input type="file" id="pep-imagem-arquivo" accept="image/*,.pdf" multiple required>
+                                            <label>Imagem(ns) - foto, JPG, PNG ou WebP *</label>
+                                            <input type="file" id="pep-imagem-arquivo" accept="image/*" multiple required>
                                         </div>
                                         <div class="form-group full-width">
                                             <label>Descrição (opcional)</label>

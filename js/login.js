@@ -5,7 +5,7 @@ import { auth, db } from './firebase.js';
 
 // 2. Puxa as ferramentas de Autenticação do Google
 // 2. Puxa as ferramentas de Autenticação do Google
-import { signInWithEmailAndPassword, sendPasswordResetEmail, onAuthStateChanged, signOut, setPersistence, browserSessionPersistence } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js';
+import { signInWithEmailAndPassword, sendPasswordResetEmail, onAuthStateChanged, signOut, setPersistence, browserSessionPersistence, EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js';
 // 3. Puxa as ferramentas de Banco de Dados do Google
 import { collection, query, where, getDocs, addDoc, doc, getDoc } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js';
 
@@ -396,6 +396,87 @@ export function initAuth() {
                 console.error("Erro ao fazer logout:", error);
                 showToast('Erro ao tentar encerrar a sessão.', 'error');
             }
+        });
+    }
+
+    // 4. Botão e Modal de Alterar Senha (usuário já logado)
+    const btnAbrirAlterarSenha = document.getElementById('btn-abrir-alterar-senha');
+    const modalAlterarSenha = document.getElementById('modal-alterar-senha');
+    const btnCloseAlterarSenha = document.getElementById('btn-close-alterar-senha');
+    const formAlterarSenha = document.getElementById('form-alterar-senha');
+
+    if (btnAbrirAlterarSenha && modalAlterarSenha) {
+        btnAbrirAlterarSenha.addEventListener('click', () => {
+            formAlterarSenha?.reset();
+            modalAlterarSenha.classList.add('active');
+            document.getElementById('senha-atual')?.focus();
+        });
+    }
+
+    if (btnCloseAlterarSenha && modalAlterarSenha) {
+        btnCloseAlterarSenha.addEventListener('click', () => {
+            modalAlterarSenha.classList.remove('active');
+            formAlterarSenha?.reset();
+        });
+    }
+
+    if (formAlterarSenha) {
+        formAlterarSenha.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const senhaAtual = document.getElementById('senha-atual').value;
+            const senhaNova = document.getElementById('senha-nova').value;
+            const senhaConfirma = document.getElementById('senha-confirma').value;
+
+            if (!senhaAtual || !senhaNova || !senhaConfirma) {
+                return showToast('Preencha todos os campos.', 'warning');
+            }
+            if (senhaNova.length < 8 || !/[A-Za-z]/.test(senhaNova) || !/\d/.test(senhaNova)) {
+                return showToast('A nova senha deve ter no mínimo 8 caracteres, com pelo menos uma letra e um número.', 'warning');
+            }
+            if (senhaNova !== senhaConfirma) {
+                return showToast('A confirmação da nova senha não confere.', 'error');
+            }
+            if (senhaAtual === senhaNova) {
+                return showToast('A nova senha deve ser diferente da senha atual.', 'warning');
+            }
+
+            const user = auth.currentUser;
+            if (!user || !user.email) {
+                return showToast('Sessão inválida. Faça login novamente.', 'error');
+            }
+
+            const btnSalvar = formAlterarSenha.querySelector('button[type="submit"]');
+            await comEstadoDeCarregamento(btnSalvar, 'Salvando...', async () => {
+                try {
+                    // 1. Confirma a senha atual por segurança
+                    const credencial = EmailAuthProvider.credential(user.email, senhaAtual);
+                    await reauthenticateWithCredential(user, credencial);
+
+                    // 2. Atualiza para a nova senha no Firebase Auth
+                    await updatePassword(user, senhaNova);
+
+                    // 3. Registra na Auditoria
+                    await registrarAuditoria({
+                        acao: 'Edição',
+                        modulo: 'Sistema',
+                        descricao: 'Senha de acesso alterada pelo próprio usuário'
+                    });
+
+                    modalAlterarSenha.classList.remove('active');
+                    formAlterarSenha.reset();
+                    showToast('Sua senha foi alterada com sucesso!', 'success');
+                } catch (err) {
+                    console.error('Erro ao alterar senha:', err.code);
+                    if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+                        showToast('A senha atual digitada está incorreta.', 'error');
+                    } else if (err.code === 'auth/weak-password') {
+                        showToast('Escolha uma senha mais forte.', 'warning');
+                    } else {
+                        showToast('Não foi possível alterar a senha. Tente novamente.', 'error');
+                    }
+                }
+            });
         });
     }
 }

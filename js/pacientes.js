@@ -3,9 +3,8 @@ import { showToast, escapeHTML, encriptar, decriptar, comEstadoDeCarregamento, c
 import { atualizarAgenda } from './agenda.js';
 import { criarNotificacao } from './notificacoes.js';
 
-import { db, storage } from './firebase.js';
+import { db } from './firebase.js';
 import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, where, arrayUnion } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js';
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-storage.js';
 import { registrarAuditoria } from './auditoria.js';
 import { resetarSeletorModelo } from './modelosDocumentos.js';
 import { obterHTMLDocumento, tituloDoDocumento } from './editorDocumento.js';
@@ -14,17 +13,9 @@ import { initProntuarioExtras, aoAbrirProntuario, aoFecharProntuario, aoSalvarEv
 
 let pacienteAtivoId = null;
 let pacienteEmEdicaoId = null; 
-// Cópia de trabalho dos anexos do paciente em edição - {foto, documento, outros: []}.
-// null quando não há paciente em edição (cadastro novo).
 let anexosEmEdicao = null;
-// URLs de anexos removidos pelo usuário nesta sessão de edição, apagadas do
-// Storage só depois que o cadastro é salvo com sucesso.
 let anexosParaExcluirDoStorage = [];
 
-// Blocos opcionais do cadastro (<details class="bloco-opcional">): ficam
-// recolhidos num cadastro novo pra deixar o formulário curto, mas abrem
-// sozinhos quando já têm algo preenchido (ex: editando um paciente que tem
-// convênio cadastrado) - assim ninguém acha que o dado "sumiu".
 function ajustarBlocosOpcionais() {
     document.querySelectorAll('#form-cadastro details.bloco-opcional').forEach(bloco => {
         bloco.open = Array.from(bloco.querySelectorAll('input:not([type="file"]), select, textarea'))
@@ -78,12 +69,8 @@ export function initPacientes() {
     const modalCadastro = document.getElementById('modal-cadastro');
     const tipoCadastro = document.getElementById('tipo-cadastro');
 
-    // Limpa o atributo que diz qual área de impressão mostrar (Receituário
-    // A4 ou Prontuário A5, ver btn-imprimir-receita/btn-imprimir-pep) assim
-    // que a caixa de diálogo de impressão do navegador fecha.
     window.addEventListener('afterprint', () => document.body.removeAttribute('data-impressao'));
 
-    // Abas novas do prontuário (sinais vitais, antecedentes, rascunho, CID...)
     initProntuarioExtras();
 
     // ==========================================
@@ -180,7 +167,6 @@ export function initPacientes() {
                 c.removeAttribute('required');
             } else {
                 if (c.value === 'Registro em modo livre') c.value = '';
-                c.setAttribute('required', 'required');
             }
         });
         btnModoLivre.innerHTML = livreAtivo
@@ -199,8 +185,22 @@ export function initPacientes() {
         showToast('Abrindo plataforma de Prescrição Digital Memed (ICP-Brasil)...', 'info');
     });
 
-    // Clique em Editar ou Excluir evolução do mesmo dia (até 23:59)
+    // Clique em Editar ou Excluir evolução do mesmo dia (até 23:59) ou abrir anexo do PEP
     document.getElementById('prontuario-ativo')?.addEventListener('click', async (e) => {
+        const btnVerAnexoPep = e.target.closest('.btn-abrir-anexo-pep');
+        if (btnVerAnexoPep) {
+            const paciente = clinicaState.pacientes.find(p => String(p.id) === String(pacienteAtivoId));
+            if (!paciente || !paciente.anexos) return;
+            const tipo = btnVerAnexoPep.getAttribute('data-tipo');
+            if (tipo === 'documento') {
+                abrirDocumentoEmNovaAba(obterUrlAnexo(paciente.anexos.documento), 'Documento de Identidade');
+            } else if (tipo === 'outro') {
+                const idx = parseInt(btnVerAnexoPep.getAttribute('data-idx') || '0', 10);
+                abrirDocumentoEmNovaAba(obterUrlAnexo(paciente.anexos.outros?.[idx]), `Documento ${idx + 1}`);
+            }
+            return;
+        }
+
         const btnEditEvo = e.target.closest('.btn-editar-evo-hoje');
         const btnDelEvo = e.target.closest('.btn-excluir-evo-hoje');
         if (!btnEditEvo && !btnDelEvo) return;
@@ -239,7 +239,6 @@ export function initPacientes() {
             const btnSubmit = document.getElementById('btn-submit-evolucao');
             if (btnSubmit) btnSubmit.innerHTML = '<i class="fa-solid fa-pen-to-square"></i> Salvar Retificação de Hoje';
 
-            // Preenche os campos principais a partir do texto salvo
             const qp = extrairCampoEvolucao(texto, ['Queixa Principal']);
             const hda = extrairCampoEvolucao(texto, ['História da Doença Atual', 'Anamnese']);
             const ef = extrairCampoEvolucao(texto, ['Exame Físico']);
@@ -249,6 +248,7 @@ export function initPacientes() {
             if (document.getElementById('pep-queixa')) document.getElementById('pep-queixa').value = qp || 'Retificação no mesmo dia';
             if (document.getElementById('pep-anamnese')) document.getElementById('pep-anamnese').value = hda || texto;
             if (document.getElementById('pep-exame-fisico')) document.getElementById('pep-exame-fisico').value = ef || '-';
+            if (document.getElementById('pep-cid') && evo.cid) document.getElementById('pep-cid').value = evo.cid;
             if (document.getElementById('pep-diagnostico') && cidDiag) document.getElementById('pep-diagnostico').value = cidDiag;
             if (document.getElementById('pep-prescricao')) document.getElementById('pep-prescricao').value = cond || texto;
 
@@ -259,9 +259,6 @@ export function initPacientes() {
     });
 
     document.getElementById('btn-novo-paciente').addEventListener('click', () => {
-        // Trava real (não só visual): o botão já fica oculto pro Doutor(a)
-        // em login.js, mas essa segunda barreira evita depender só do
-        // CSS/display caso alguém force o clique via DevTools.
         if (clinicaState.sessao.perfil === 'Doutor(a)') {
             showToast('Cadastro de paciente é restrito à Recepção e Administração.', 'error');
             return;
@@ -285,8 +282,6 @@ export function initPacientes() {
         tipoCadastro.value = tipo;
         const isPac = tipo === 'paciente';
 
-        // Reseta o estado de anexos - o handler de edição (btnEditar) sobrescreve
-        // isso logo em seguida quando o cadastro é de um paciente existente.
         anexosEmEdicao = { foto: null, documento: null, outros: [] };
         anexosParaExcluirDoStorage = [];
         renderizarAnexosExistentes();
@@ -309,11 +304,24 @@ export function initPacientes() {
 
     tipoCadastro.addEventListener('change', (e) => abrirModalCadastro(e.target.value));
 
-    // Clique para remover um anexo já existente (durante edição de paciente) -
-    // só é removido do Storage de fato depois que o formulário é salvo.
     const listaAnexosExistentes = document.getElementById('anexos-existentes-lista');
     if (listaAnexosExistentes) {
         listaAnexosExistentes.addEventListener('click', (e) => {
+            const btnAbrirDoc = e.target.closest('.btn-abrir-doc-base64');
+            if (btnAbrirDoc && anexosEmEdicao) {
+                const tipo = btnAbrirDoc.getAttribute('data-tipo');
+                if (tipo === 'foto') {
+                    abrirDocumentoEmNovaAba(obterUrlAnexo(anexosEmEdicao.foto), 'Foto do Paciente');
+                } else if (tipo === 'documento') {
+                    abrirDocumentoEmNovaAba(obterUrlAnexo(anexosEmEdicao.documento), 'Documento de Identidade');
+                } else if (tipo === 'outro') {
+                    const idx = parseInt(btnAbrirDoc.getAttribute('data-idx'), 10);
+                    const item = anexosEmEdicao.outros[idx];
+                    if (item) abrirDocumentoEmNovaAba(obterUrlAnexo(item), `Documento ${idx + 1}`);
+                }
+                return;
+            }
+
             const btn = e.target.closest('.btn-remover-anexo');
             if (!btn || !anexosEmEdicao) return;
 
@@ -325,7 +333,7 @@ export function initPacientes() {
                 anexosParaExcluirDoStorage.push(anexosEmEdicao.documento);
                 anexosEmEdicao.documento = null;
             } else if (tipo === 'outro') {
-                const idx = parseInt(btn.getAttribute('data-idx'));
+                const idx = parseInt(btn.getAttribute('data-idx'), 10);
                 if (anexosEmEdicao.outros[idx]) {
                     anexosParaExcluirDoStorage.push(anexosEmEdicao.outros[idx]);
                     anexosEmEdicao.outros.splice(idx, 1);
@@ -353,7 +361,7 @@ export function initPacientes() {
     });
 
     // ==========================================
-    // SALVAMENTO DE CADASTRO COM CRIPTOGRAFIA
+    // SALVAMENTO DE CADASTRO COM CRIPTOGRAFIA + ANEXOS BASE64
     // ==========================================
     document.getElementById('form-cadastro').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -385,8 +393,6 @@ export function initPacientes() {
 
             try {
                 if (tipo === 'paciente') {
-                    // Envia os arquivos novos ANTES de gravar o cadastro - se algum
-                    // upload falhar, interrompemos aqui e nada é salvo pela metade.
                     const inputFoto = document.getElementById('cad-anexo-foto');
                     const inputDocumento = document.getElementById('cad-anexo-documento');
                     const inputOutros = document.getElementById('cad-anexo-outros');
@@ -396,19 +402,19 @@ export function initPacientes() {
                     const novosOutrosUrls = [];
 
                     try {
-                        if (inputFoto.files[0]) novaFotoUrl = await uploadAnexo(inputFoto.files[0], 'foto');
-                        if (inputDocumento.files[0]) novoDocumentoUrl = await uploadAnexo(inputDocumento.files[0], 'documento');
-                        for (const arquivo of inputOutros.files) {
-                            novosOutrosUrls.push(await uploadAnexo(arquivo, 'outros'));
+                        if (inputFoto?.files[0]) novaFotoUrl = await uploadAnexo(inputFoto.files[0], 'foto');
+                        if (inputDocumento?.files[0]) novoDocumentoUrl = await uploadAnexo(inputDocumento.files[0], 'documento');
+                        if (inputOutros?.files) {
+                            for (const arquivo of Array.from(inputOutros.files).slice(0, 2)) {
+                                novosOutrosUrls.push(await uploadAnexo(arquivo, 'outros'));
+                            }
                         }
                     } catch (uploadError) {
-                        console.error("Erro ao enviar anexo: ", uploadError);
-                        showToast('Falha ao enviar um dos anexos. O cadastro não foi salvo.', 'error');
+                        console.error("Erro ao processar anexo: ", uploadError);
+                        showToast(uploadError.message || 'Falha ao processar um dos anexos (use imagem JPG/PNG).', 'error');
                         return;
                     }
 
-                    // Anexos são opcionais (conforme definido em reunião) - só
-                    // gravamos o campo se houver algo, novo ou já existente.
                     const anexosAtuais = {
                         foto: novaFotoUrl || (anexosEmEdicao ? anexosEmEdicao.foto : null),
                         documento: novoDocumentoUrl || (anexosEmEdicao ? anexosEmEdicao.documento : null),
@@ -439,17 +445,6 @@ export function initPacientes() {
                         await addDoc(collection(db, "pacientes"), dadosParaSalvar);
                         showToast('Paciente salvo e criptografado com sucesso!', 'success');
                         await registrarAuditoria({ acao: 'Criação', modulo: 'Pacientes', descricao: `Novo paciente cadastrado: ${nomeClaro}${sufixoAuditoria}` });
-                    }
-
-                    // Só remove do Storage depois que o cadastro foi salvo com
-                    // sucesso - se der erro antes disso, os arquivos "removidos"
-                    // continuam intactos e o usuário pode tentar salvar de novo.
-                    for (const urlAntiga of anexosParaExcluirDoStorage) {
-                        try {
-                            await deleteObject(ref(storage, urlAntiga));
-                        } catch (removeError) {
-                            console.error("Erro ao remover anexo antigo do Storage: ", removeError);
-                        }
                     }
                 } else {
                     const nomeClaro = document.getElementById('cad-nome').value;
@@ -493,14 +488,6 @@ export function initPacientes() {
         renderizarResumoPacienteAtivo();
     });
 
-    // ==========================================
-    // IMPRESSÃO DO PRONTUÁRIO (RESUMO EM A5)
-    // Formato compacto pra grampear na pasta física do paciente - mostra os
-    // dados básicos e a evolução mais recente, não o histórico inteiro
-    // (esse fica na tela, aba "Histórico Clínico"). Usa folha A5, diferente
-    // do Receituário (btn-imprimir-receita), que é A4 - ver @media print
-    // em style.css, que escolhe o tamanho pelo atributo data-impressao.
-    // ==========================================
     const btnImprimirPep = document.getElementById('btn-imprimir-pep');
     if (btnImprimirPep) {
         btnImprimirPep.addEventListener('click', () => {
@@ -529,8 +516,6 @@ export function initPacientes() {
                 elAssinatura.textContent = '';
             }
 
-            // Sinaliza pro CSS de impressão que é o Prontuário (A5) que deve
-            // aparecer - ver comentário equivalente no handler do Receituário.
             document.body.setAttribute('data-impressao', 'pep');
             window.print();
         });
@@ -546,11 +531,17 @@ export function initPacientes() {
         const paciente = clinicaState.pacientes.find(p => String(p.id) === String(pacienteAtivoId));
         const btnSalvar = e.target.querySelector('button[type="submit"]');
 
-        // TRAVA OBRIGATÓRIA DE CID-10 (Pedido Dr. Aroldo para Auditoria)
         const cidValor = (document.getElementById('pep-cid')?.value || '').trim().toUpperCase();
         if (!cidValor || cidValor.length < 3) {
-            showToast('O preenchimento do CID-10 é obrigatório para autorizar o fechamento do atendimento.', 'warning');
+            showToast('Informe o CID-10 ou clique num dos botões de Suspeita / Rotina para finalizar.', 'warning');
             document.getElementById('pep-cid')?.focus();
+            return;
+        }
+
+        const prescricaoVal = (document.getElementById('pep-prescricao')?.value || '').trim();
+        if (!prescricaoVal) {
+            showToast('Preencha a evolução / conduta clínica antes de assinar.', 'warning');
+            document.getElementById('pep-prescricao')?.focus();
             return;
         }
 
@@ -593,6 +584,7 @@ export function initPacientes() {
 
                 paciente.evolucoes[idx] = {
                     ...evoOriginal,
+                    cid: cidValor,
                     texto: textoCriptografado,
                     editadoEm: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
                     ...(sinaisVitais ? { vitaisCripto: encriptar(JSON.stringify(sinaisVitais)) } : {})
@@ -627,7 +619,6 @@ export function initPacientes() {
             };
             if (sinaisVitais) novaEvolucao.vitaisCripto = encriptar(JSON.stringify(sinaisVitais));
 
-            // Cronômetro de atendimento: se foi iniciado, grava início e duração na evolução
             const cronometro = lerCronometro(paciente.id);
             if (cronometro) Object.assign(novaEvolucao, cronometro);
 
@@ -678,7 +669,7 @@ export function initPacientes() {
                 await registrarAuditoria({ acao: 'Criação', modulo: 'Prontuário', descricao: `Evolução registrada para ${paciente.nome} por ${profissional.nome} (CID: ${cidValor})` });
             } catch (error) {
                 console.error("Erro ao salvar evolução: ", error);
-                showToast('Erro de conexão ao salvar ficha.', 'error');
+                showToast('Erro de permissão ou conexão ao salvar ficha. Verifique o firestore.rules.', 'error');
                 paciente.evolucoes.pop(); 
             }
         });
@@ -741,96 +732,6 @@ export function initPacientes() {
                     paciente.examesSolicitados.pop();
                 }
             });
-        });
-    }
-
-    // ==========================================
-    // EXAMES / IMAGENS ANEXADAS AO PRONTUÁRIO
-    // ==========================================
-    const formImagensExame = document.getElementById('form-imagens-exame');
-    if (formImagensExame) {
-        formImagensExame.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            if (!pacienteAtivoId) return;
-
-            const paciente = clinicaState.pacientes.find(p => String(p.id) === String(pacienteAtivoId));
-            const inputArquivo = document.getElementById('pep-imagem-arquivo');
-            const inputDescricao = document.getElementById('pep-imagem-descricao');
-            const btnSalvar = e.target.querySelector('button[type="submit"]');
-
-            if (!paciente) {
-                showToast('Não foi possível localizar o paciente ativo.', 'error');
-                return;
-            }
-
-            if (!inputArquivo.files || inputArquivo.files.length === 0) {
-                showToast('Selecione ao menos um arquivo.', 'warning');
-                return;
-            }
-
-            const profId = document.getElementById('pep-profissional').value;
-            const profissional = clinicaState.profissionais.find(p => String(p.id) === String(profId));
-            if (!profissional) {
-                showToast('Selecione o profissional responsável na aba "Atendimento" antes de anexar exames.', 'warning');
-                return;
-            }
-
-            await comEstadoDeCarregamento(btnSalvar, 'Comprimindo e salvando...', async () => {
-                const descricaoCripto = encriptar(inputDescricao.value.trim());
-                try {
-                    for (const arquivo of inputArquivo.files) {
-                        const base64 = await comprimirExameParaBase64(arquivo, 1280, 0.78);
-                        if (base64.length > 900000) {
-                            throw new Error(`A imagem "${arquivo.name}" excede o limite após a compressão.`);
-                        }
-
-                        await addDoc(collection(db, "exames_anexos"), {
-                            clinicaId: clinicaState.sessao.clinicaId,
-                            pacienteId: String(paciente.id),
-                            nomeArquivo: arquivo.name,
-                            base64,
-                            descricaoCripto,
-                            data: new Date().toLocaleString('pt-BR'),
-                            criadoEmISO: new Date().toISOString(),
-                            profissional: profissional.nome
-                        });
-                    }
-                    e.target.reset();
-                    await carregarImagensExamesDoPaciente(paciente.id);
-                    showToast('Exame(s) salvo(s) no prontuário com sucesso!', 'success');
-                    await registrarAuditoria({ acao: 'Criação', modulo: 'Prontuário', descricao: `Exame em imagem anexado para ${paciente.nome}` });
-                } catch (error) {
-                    console.error("Erro ao salvar imagem Base64:", error);
-                    showToast('Erro ao processar ou salvar a imagem. Verifique se escolheu uma foto válida e dentro do limite.', 'error');
-                }
-            });
-        });
-    }
-
-    // Exclusão de um exame/imagem já anexado - delegação de clique no grid
-    const gridImagensExames = document.getElementById('pep-imagens-grid');
-    if (gridImagensExames) {
-        gridImagensExames.addEventListener('click', async (e) => {
-            const btnExcluir = e.target.closest('.btn-excluir-imagem-exame');
-            if (!btnExcluir || !pacienteAtivoId) return;
-
-            const docId = btnExcluir.getAttribute('data-id');
-            if (!docId) return;
-
-            if (await confirmarAcao('Deseja realmente excluir este exame do prontuário?', { titulo: 'Excluir anexo', textoConfirmar: 'Excluir' })) {
-                try {
-                    await deleteDoc(doc(db, "exames_anexos", docId));
-                    await carregarImagensExamesDoPaciente(pacienteAtivoId);
-                    showToast('Anexo removido do prontuário.', 'success');
-                    const paciente = clinicaState.pacientes.find(p => String(p.id) === String(pacienteAtivoId));
-                    if (paciente) {
-                        await registrarAuditoria({ acao: 'Exclusão', modulo: 'Prontuário', descricao: `Exame em imagem removido de ${paciente.nome}` });
-                    }
-                } catch (error) {
-                    console.error("Erro ao excluir exame Base64:", error);
-                    showToast('Erro ao excluir anexo.', 'error');
-                }
-            }
         });
     }
 
@@ -1049,14 +950,88 @@ export function initPacientes() {
 }
 
 // ==========================================
-// ANEXOS DO PACIENTE
+// ANEXOS DO PACIENTE (BASE64 COM NOME CLICÁVEL)
 // ==========================================
 const ROTULOS_ANEXO = { foto: 'Foto do paciente', documento: 'Documento de identidade' };
 
-function chipAnexo(rotulo, url, tipo, idx) {
+function comprimirDocumentoBase64(file, maxDim = 1000, qualidade = 0.72) {
+    return new Promise((resolve, reject) => {
+        if (!file || !file.type.startsWith('image/')) {
+            return reject(new Error('Envie o documento como imagem (Foto/Scanner JPG ou PNG).'));
+        }
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                let { width, height } = img;
+                if (width > maxDim || height > maxDim) {
+                    if (width > height) {
+                        height = Math.round((height * maxDim) / width);
+                        width = maxDim;
+                    } else {
+                        width = Math.round((width * maxDim) / height);
+                        height = maxDim;
+                    }
+                }
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+                resolve({
+                    nome: file.name || 'documento.jpg',
+                    dataUrl: canvas.toDataURL('image/jpeg', qualidade)
+                });
+            };
+            img.onerror = reject;
+            img.src = e.target.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+async function uploadAnexo(file, subpasta) {
+    const maxDim = subpasta === 'foto' ? 320 : 1000;
+    return await comprimirDocumentoBase64(file, maxDim, 0.75);
+}
+
+function obterUrlAnexo(item) {
+    if (!item) return '';
+    return typeof item === 'object' ? (item.dataUrl || '') : String(item);
+}
+
+function obterNomeAnexo(item, rotuloPadrao) {
+    if (!item) return rotuloPadrao;
+    return typeof item === 'object' && item.nome ? `${rotuloPadrao} (${item.nome})` : rotuloPadrao;
+}
+
+function abrirDocumentoEmNovaAba(urlOuBase64, titulo = 'Documento do Paciente') {
+    if (!urlOuBase64) return;
+    const novaJanela = window.open('', '_blank');
+    if (!novaJanela) return showToast('Permita pop-ups para visualizar o documento.', 'warning');
+    novaJanela.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head><title>${escapeHTML(titulo)}</title></head>
+        <body style="margin:0; background:#1B262C; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; font-family:sans-serif;">
+            <div style="padding:10px 20px; background:#0F4C75; color:#fff; width:100%; box-sizing:border-box; display:flex; justify-content:space-between; align-items:center;">
+                <strong>${escapeHTML(titulo)}</strong>
+                <a href="${urlOuBase64}" download="${escapeHTML(titulo)}.jpg" style="color:#fff; background:#17A673; padding:6px 14px; border-radius:6px; text-decoration:none; font-size:14px;">Baixar Arquivo</a>
+            </div>
+            <img src="${urlOuBase64}" style="max-width:95%; max-height:88vh; margin:auto; border-radius:6px; box-shadow:0 8px 25px rgba(0,0,0,0.5);">
+        </body>
+        </html>
+    `);
+    novaJanela.document.close();
+}
+
+function chipAnexo(rotulo, item, tipo, idx) {
     const dataIdx = idx !== undefined ? ` data-idx="${idx}"` : '';
+    const nomeExibicao = obterNomeAnexo(item, rotulo);
     return `<span class="anexo-chip">
-        <a href="${url}" target="_blank" rel="noopener"><i class="fa-solid fa-paperclip"></i> ${escapeHTML(rotulo)}</a>
+        <button type="button" class="btn-abrir-doc-base64" data-tipo="${tipo}"${dataIdx} style="background:none; border:none; color:var(--primary-color); font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
+            <i class="fa-solid fa-file-lines"></i> ${escapeHTML(nomeExibicao)}
+        </button>
         <button type="button" class="btn-remover-anexo" data-tipo="${tipo}"${dataIdx} title="Remover anexo"><i class="fa-solid fa-xmark"></i></button>
     </span>`;
 }
@@ -1066,7 +1041,11 @@ function renderizarAnexosExistentes() {
     const container = document.getElementById('anexos-existentes-lista');
     if (!wrapper || !container) return;
 
-    const temAlgo = anexosEmEdicao && (anexosEmEdicao.foto || anexosEmEdicao.documento || (anexosEmEdicao.outros && anexosEmEdicao.outros.length > 0));
+    const temAlgo = anexosEmEdicao && (
+        anexosEmEdicao.foto ||
+        anexosEmEdicao.documento ||
+        (anexosEmEdicao.outros && anexosEmEdicao.outros.length > 0)
+    );
 
     if (!temAlgo) {
         wrapper.style.display = 'none';
@@ -1078,18 +1057,10 @@ function renderizarAnexosExistentes() {
     let html = '';
     if (anexosEmEdicao.foto) html += chipAnexo(ROTULOS_ANEXO.foto, anexosEmEdicao.foto, 'foto');
     if (anexosEmEdicao.documento) html += chipAnexo(ROTULOS_ANEXO.documento, anexosEmEdicao.documento, 'documento');
-    (anexosEmEdicao.outros || []).forEach((url, idx) => {
-        html += chipAnexo(`Outro documento ${idx + 1}`, url, 'outro', idx);
+    (anexosEmEdicao.outros || []).forEach((item, idx) => {
+        html += chipAnexo(`Outro documento ${idx + 1}`, item, 'outro', idx);
     });
     container.innerHTML = html;
-}
-
-async function uploadAnexo(file, subpasta) {
-    const nomeSeguro = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const caminho = `pacientes/${clinicaState.sessao.clinicaId}/${subpasta}/${Date.now()}_${nomeSeguro}`;
-    const arquivoRef = ref(storage, caminho);
-    await uploadBytes(arquivoRef, file);
-    return await getDownloadURL(arquivoRef);
 }
 
 function dataLocalISO(d = new Date()) {
@@ -1184,10 +1155,6 @@ export function abrirProntuario(idPaciente, opcoes = {}) {
                 selProf.value = profsPermitidos[0].id;
                 selProf.style.pointerEvents = 'none'; 
                 selProf.style.backgroundColor = '#e2e8f0'; 
-                // Abre automaticamente o bloco de Oftalmologia se a especialidade do médico for Oftalmo
-                // const esp = (profsPermitidos[0].especialidade || '').toLowerCase();
-                // const blocoOft = document.getElementById('pep-bloco-oftalmo');
-                // if (blocoOft) blocoOft.open = esp.includes('oftalmo') || esp.includes('retina');
             } else {
                 selProf.style.pointerEvents = 'auto';
                 selProf.style.backgroundColor = '';
@@ -1197,7 +1164,6 @@ export function abrirProntuario(idPaciente, opcoes = {}) {
         renderizarEvolucoes(paciente);
         renderizarResumoRapidoProntuario(paciente);
         renderizarExamesSolicitados(paciente);
-        carregarImagensExamesDoPaciente(paciente.id);
         renderizarResumoPacienteAtivo();
         aoAbrirProntuario(paciente, opcoes.aba);
         aoAbrirProntuarioAtendimento(paciente);
@@ -1207,25 +1173,19 @@ export function abrirProntuario(idPaciente, opcoes = {}) {
         const textoReceita = document.getElementById('texto-receita');
         if (textoReceita) textoReceita.value = '';
         resetarSeletorModelo(paciente);
-
-        const formImagensExameReset = document.getElementById('form-imagens-exame');
-        if (formImagensExameReset) formImagensExameReset.reset();
         
         const areaHistorico = document.querySelector('.pep-historico'); 
         const formEvolucao = document.querySelector('.pep-nova-evolucao'); 
         const tabBtnExames = document.getElementById('tab-btn-exames');
-        const tabBtnImagens = document.getElementById('tab-btn-imagens');
         
         if (clinicaState.sessao.perfil !== 'Doutor(a)') {
             if(areaHistorico) areaHistorico.style.display = 'none';
             if(formEvolucao) formEvolucao.style.display = 'none';
             if(tabBtnExames) tabBtnExames.style.display = 'none';
-            if(tabBtnImagens) tabBtnImagens.style.display = 'none';
         } else {
             if(areaHistorico) areaHistorico.style.display = 'block';
             if(formEvolucao) formEvolucao.style.display = 'block';
             if(tabBtnExames) tabBtnExames.style.display = '';
-            if(tabBtnImagens) tabBtnImagens.style.display = '';
         }
 
         const listaContainer = document.getElementById('lista-pacientes-container');
@@ -1331,106 +1291,6 @@ function renderizarExamesSolicitados(paciente) {
     }).join('') || '<p style="color: var(--text-light); text-align: center; padding: 20px;">Nenhum exame solicitado ainda.</p>';
 }
 
-function comprimirExameParaBase64(file, maxDim = 1280, qualidade = 0.78) {
-    return new Promise((resolve, reject) => {
-        if (!file || !file.type.startsWith('image/')) {
-            reject(new Error('Envie apenas arquivos de imagem (JPG, PNG, WebP).'));
-            return;
-        }
-
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            if (typeof e.target.result !== 'string') {
-                reject(new Error('Não foi possível ler o arquivo de imagem.'));
-                return;
-            }
-
-            const img = new Image();
-            img.onload = () => {
-                let { width, height } = img;
-                if (width > maxDim || height > maxDim) {
-                    if (width > height) {
-                        height = Math.round((height * maxDim) / width);
-                        width = maxDim;
-                    } else {
-                        width = Math.round((width * maxDim) / height);
-                        height = maxDim;
-                    }
-                }
-
-                const canvas = document.createElement('canvas');
-                canvas.width = width;
-                canvas.height = height;
-                const ctx = canvas.getContext('2d');
-                if (!ctx) {
-                    reject(new Error('Não foi possível processar a imagem.'));
-                    return;
-                }
-
-                ctx.drawImage(img, 0, 0, width, height);
-                resolve(canvas.toDataURL('image/jpeg', qualidade));
-            };
-            img.onerror = () => reject(new Error('Não foi possível carregar a imagem.'));
-            img.src = e.target.result;
-        };
-        reader.onerror = () => reject(new Error('Não foi possível ler o arquivo de imagem.'));
-        reader.readAsDataURL(file);
-    });
-}
-
-async function carregarImagensExamesDoPaciente(pacienteId) {
-    const container = document.getElementById('pep-imagens-grid');
-    if (container && String(pacienteAtivoId) === String(pacienteId)) {
-        container.innerHTML = '<p style="color:var(--text-light); padding:15px;">Carregando anexos...</p>';
-    }
-
-    try {
-        const q = query(
-            collection(db, "exames_anexos"),
-            where("clinicaId", "==", clinicaState.sessao.clinicaId),
-            where("pacienteId", "==", String(pacienteId))
-        );
-        const snap = await getDocs(q);
-        const lista = [];
-        snap.forEach(d => lista.push({ ...d.data(), id: String(d.id) }));
-        lista.sort((a, b) => (b.criadoEmISO || '').localeCompare(a.criadoEmISO || ''));
-        if (String(pacienteAtivoId) === String(pacienteId)) renderizarImagensExames(lista);
-    } catch (err) {
-        console.error("Erro ao carregar exames Base64:", err);
-        if (container && String(pacienteAtivoId) === String(pacienteId)) {
-            container.innerHTML = '<p style="color:var(--text-light); padding:15px;">Erro ao carregar anexos.</p>';
-        }
-    }
-}
-
-function renderizarImagensExames(lista = []) {
-    const container = document.getElementById('pep-imagens-grid');
-    if (!container) return;
-
-    if (lista.length === 0) {
-        container.innerHTML = '<p style="color: var(--text-light); text-align: center; padding: 20px;">Nenhum exame ou imagem anexada ainda.</p>';
-        return;
-    }
-
-    container.innerHTML = lista.map((item) => {
-        const descricao = item.descricaoCripto ? decriptar(item.descricaoCripto) : '';
-        return `
-        <div class="pep-imagem-card">
-            <a href="${escapeHTML(item.base64 || '')}" download="${escapeHTML(item.nomeArquivo || 'exame.jpg')}" title="Clique para baixar/ampliar">
-                <img src="${escapeHTML(item.base64 || '')}" alt="${escapeHTML(item.nomeArquivo || 'Exame')}">
-            </a>
-            <div class="pep-imagem-info">
-                <strong title="${escapeHTML(item.nomeArquivo || '')}">${escapeHTML(item.nomeArquivo || '')}</strong>
-                ${descricao ? `<span class="pep-imagem-descricao">${escapeHTML(descricao)}</span>` : ''}
-                <small>${escapeHTML(item.profissional || '')} · ${escapeHTML(item.data || '')}</small>
-            </div>
-            <button type="button" class="btn-action btn-delete btn-excluir-imagem-exame" data-id="${escapeHTML(item.id)}" title="Excluir anexo">
-                <i class="fa-solid fa-trash"></i>
-            </button>
-        </div>`;
-    }).join('');
-}
-
 export function renderizarResumoPacienteAtivo() {
     if (!pacienteAtivoId) return;
     const paciente = clinicaState.pacientes.find(p => String(p.id) === String(pacienteAtivoId));
@@ -1459,9 +1319,10 @@ export function renderizarResumoPacienteAtivo() {
     }
 
     const elAvatar = document.getElementById('pep-avatar');
+    const urlFoto = obterUrlAnexo(paciente.anexos?.foto);
     if (elAvatar) {
-        elAvatar.innerHTML = paciente.anexos && paciente.anexos.foto
-            ? `<img src="${paciente.anexos.foto}" alt="Foto de ${escapeHTML(paciente.nome)}">`
+        elAvatar.innerHTML = urlFoto
+            ? `<img src="${urlFoto}" alt="Foto de ${escapeHTML(paciente.nome)}">`
             : '<i class="fa-solid fa-hospital-user"></i>';
     }
 
@@ -1469,8 +1330,15 @@ export function renderizarResumoPacienteAtivo() {
     if (elAnexosLinks) {
         const anexos = paciente.anexos || {};
         let html = '';
-        if (anexos.documento) html += `<a class="pep-badge link" href="${anexos.documento}" target="_blank" rel="noopener"><i class="fa-solid fa-id-card"></i> Documento</a>`;
-        if (anexos.outros && anexos.outros.length > 0) html += `<a class="pep-badge link" href="${anexos.outros[0]}" target="_blank" rel="noopener"><i class="fa-solid fa-paperclip"></i> Outros (${anexos.outros.length})</a>`;
+        if (anexos.documento) {
+            html += `<button type="button" class="pep-badge link btn-abrir-anexo-pep" data-tipo="documento" style="border:none;"><i class="fa-solid fa-id-card"></i> Documento</button>`;
+        }
+        if (anexos.outros && anexos.outros.length > 0) {
+            anexos.outros.forEach((item, idx) => {
+                const rotulo = obterNomeAnexo(item, `Anexo ${idx + 1}`);
+                html += `<button type="button" class="pep-badge link btn-abrir-anexo-pep" data-tipo="outro" data-idx="${idx}" style="border:none;"><i class="fa-solid fa-paperclip"></i> ${escapeHTML(rotulo)}</button>`;
+            });
+        }
         elAnexosLinks.innerHTML = html;
     }
 }

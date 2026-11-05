@@ -1371,15 +1371,27 @@
                                 </div>
                             </details>
 
-                            <div class="form-group full-width" style="display: none;"><h3 class="form-section-title">Anexos (opcional)</h3></div>
-                                <div class="form-group full-width" id="anexos-existentes-container" style="display: none;">
-                                    <label>Anexos já enviados</label>
-                                    <div class="anexos-lista" id="anexos-existentes-lista"></div>
+                            <details class="bloco-opcional full-width">
+                                <summary><i class="fa-solid fa-paperclip"></i> Documentos Escaneados — RG, CNH ou Carteirinha <small>(opcional)</small></summary>
+                                <div class="form-grid bloco-opcional-corpo">
+                                    <div class="form-group full-width" id="anexos-existentes-container" style="display: none;">
+                                        <label>Documentos salvos (clique no nome para abrir)</label>
+                                        <div class="anexos-lista" id="anexos-existentes-lista"></div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Foto 3x4 / Avatar (opcional)</label>
+                                        <input type="file" id="cad-anexo-foto" class="input-premium" accept="image/*">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Documento (RG / CNH / Carteirinha)</label>
+                                        <input type="file" id="cad-anexo-documento" class="input-premium" accept="image/*">
+                                    </div>
+                                    <div class="form-group full-width">
+                                        <label>Outros Documentos (máx. 2 imagens)</label>
+                                        <input type="file" id="cad-anexo-outros" class="input-premium" accept="image/*" multiple>
+                                    </div>
                                 </div>
-                                <div class="form-group" style="display: none;"><label>Foto do Paciente</label><input type="file" id="cad-anexo-foto" class="input-premium" accept="image/*"></div>
-                                <div class="form-group" style="display: none;"><label>Documento de Identidade (RG/CNH)</label><input type="file" id="cad-anexo-documento" class="input-premium" accept="image/*,.pdf"></div>
-                                <div class="form-group full-width" style="display: none;"><label>Outros Documentos</label><input type="file" id="cad-anexo-outros" class="input-premium" accept="image/*,.pdf" multiple></div>
-                        </div>
+                            </details>
 
                         <div class="profissional-only full-width form-grid" style="display:none;">
                             <div class="form-group full-width"><h3 class="form-section-title">Dados Profissionais (Regulatório)</h3></div>

@@ -11,6 +11,7 @@ let notificacaoIdEmResolucao = null;
 let periodoAtual = 'dia';
 let filtroStatusAtual = 'todos';
 let pagamentoAdicionalConfirmado = false;
+const buscasAgenda = new WeakMap();
 
 const NOMES_MES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 const NOMES_DIA_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -254,6 +255,203 @@ function atualizarVisualizacaoProcedimento() {
     campoValor.value = isPacote ? `${formatCurrency(valor)} (Pacote)` : formatCurrency(valor);
 }
 
+function adicionarBuscaAoSelect(select, descricao) {
+    if (!select) return null;
+
+    // Se já tem busca acoplada, apenas ressincroniza com as novas opções do <select>
+    if (buscasAgenda.has(select)) {
+        const api = buscasAgenda.get(select);
+        api.sincronizar();
+        return api.input;
+    }
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'agenda-search-control';
+
+    const inputWrap = document.createElement('div');
+    inputWrap.className = 'agenda-search-input-wrap';
+
+    const icone = document.createElement('i');
+    icone.className = 'fa-solid fa-magnifying-glass agenda-search-icon';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'input-premium agenda-search-input';
+    input.placeholder = `Digite para buscar ${descricao}...`;
+    input.autocomplete = 'off';
+
+    const btnLimpar = document.createElement('button');
+    btnLimpar.type = 'button';
+    btnLimpar.className = 'agenda-search-clear';
+    btnLimpar.setAttribute('data-sem-cooldown', 'true');
+    btnLimpar.title = 'Limpar seleção';
+    btnLimpar.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+
+    const resultados = document.createElement('div');
+    resultados.className = 'agenda-search-results';
+    resultados.hidden = true;
+
+    const parent = select.parentElement;
+    if (!parent) return null;
+
+    inputWrap.append(icone, input, btnLimpar);
+    wrapper.append(inputWrap, resultados);
+    parent.insertBefore(wrapper, select);
+    wrapper.appendChild(select);
+
+    select.classList.add('agenda-search-source');
+    select.required = false;
+
+    let indiceDestacado = -1;
+
+    const normalizar = (txt) => String(txt || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+
+    const obterOpcoesValidas = () => Array.from(select.options).filter(o => o.value !== '');
+
+    const atualizarBotaoLimpar = () => {
+        btnLimpar.style.display = (input.value && !select.disabled) ? 'inline-flex' : 'none';
+    };
+
+    const sincronizar = () => {
+        const opSelecionada = Array.from(select.options).find(o => o.value === select.value && o.value !== '');
+        input.value = opSelecionada ? opSelecionada.textContent.trim() : '';
+        input.disabled = select.disabled;
+        wrapper.style.display = select.style.display === 'none' ? 'none' : '';
+        atualizarBotaoLimpar();
+    };
+
+    const fecharLista = () => {
+        resultados.hidden = true;
+        indiceDestacado = -1;
+        // Se o usuário digitou algo mas saiu sem escolher, restaura o texto do item válido atual
+        const opAtual = Array.from(select.options).find(o => o.value === select.value && o.value !== '');
+        if (opAtual) {
+            input.value = opAtual.textContent.trim();
+        } else {
+            input.value = '';
+        }
+        atualizarBotaoLimpar();
+    };
+
+    const escolherOpcao = (option) => {
+        if (!option) return;
+        select.value = option.value;
+        input.value = option.textContent.trim();
+        resultados.hidden = true;
+        indiceDestacado = -1;
+        atualizarBotaoLimpar();
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+
+    const destacarItem = (botoes, novoIndice) => {
+        if (!botoes.length) return;
+        indiceDestacado = (novoIndice + botoes.length) % botoes.length;
+        botoes.forEach((b, i) => {
+            b.classList.toggle('is-highlighted', i === indiceDestacado);
+            if (i === indiceDestacado) b.scrollIntoView({ block: 'nearest' });
+        });
+    };
+
+    // se mostrarTudo = true, exibe todas as opções ao focar no campo (mesmo já preenchido)
+    const renderizar = (mostrarTudo = false) => {
+        if (select.disabled) return;
+        const termo = mostrarTudo ? '' : normalizar(input.value.trim());
+        const opcoes = obterOpcoesValidas().filter(o => normalizar(o.textContent).includes(termo));
+
+        resultados.replaceChildren();
+        indiceDestacado = -1;
+
+        if (opcoes.length === 0) {
+            const vazio = document.createElement('div');
+            vazio.className = 'agenda-search-empty';
+            vazio.textContent = `Nenhum(a) ${descricao} encontrado(a).`;
+            resultados.appendChild(vazio);
+        } else {
+            opcoes.forEach((option, idx) => {
+                const item = document.createElement('button');
+                item.type = 'button';
+                item.className = 'agenda-search-option';
+                item.setAttribute('data-sem-cooldown', 'true'); // Evita trava do main.js!
+                item.textContent = option.textContent.trim();
+
+                if (idx === 0 && termo !== '') {
+                    item.classList.add('is-highlighted');
+                    indiceDestacado = 0;
+                }
+
+                // mousedown dispara ANTES do blur do input, garantindo clique 100% confiável
+                item.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    escolherOpcao(option);
+                });
+                resultados.appendChild(item);
+            });
+        }
+        resultados.hidden = false;
+    };
+
+    input.addEventListener('focus', () => {
+        if (select.disabled) return;
+        input.select();
+        renderizar(true); // Abre mostrando a lista completa para facilitar!
+    });
+
+    input.addEventListener('click', () => {
+        if (resultados.hidden && !select.disabled) renderizar(true);
+    });
+
+    input.addEventListener('input', () => {
+        atualizarBotaoLimpar();
+        renderizar(false);
+    });
+
+    input.addEventListener('keydown', (e) => {
+        const botoes = Array.from(resultados.querySelectorAll('.agenda-search-option'));
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (resultados.hidden) renderizar(true);
+            else destacarItem(botoes, indiceDestacado + 1);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (!resultados.hidden) destacarItem(botoes, indiceDestacado - 1);
+        } else if (e.key === 'Enter') {
+            if (!resultados.hidden && botoes.length > 0) {
+                e.preventDefault();
+                const alvo = botoes[indiceDestacado >= 0 ? indiceDestacado : 0];
+                alvo?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+            }
+        } else if (e.key === 'Escape') {
+            fecharLista();
+        }
+    });
+
+    btnLimpar.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        if (select.disabled) return;
+        input.value = '';
+        select.value = '';
+        atualizarBotaoLimpar();
+        input.focus();
+        renderizar(true);
+    });
+
+    document.addEventListener('mousedown', (e) => {
+        if (!wrapper.contains(e.target)) {
+            fecharLista();
+        }
+    });
+
+    select.addEventListener('change', sincronizar);
+
+    const api = { sincronizar, input, wrapper };
+    buscasAgenda.set(select, api);
+    sincronizar();
+    return input;
+}
+
 function popularSelectProcedimentos() {
     const selectProcedimento = document.getElementById('agenda-procedimento');
     const tipoAtendimento = document.getElementById('agenda-tipo')?.value || 'procedimento_avulso';
@@ -269,6 +467,7 @@ function popularSelectProcedimentos() {
 
         selectProcedimento.innerHTML = '<option value="">Selecione o pacote...</option>' +
             listaPac.map(pac => `<option value="${pac.id}">📦 ${escapeHTML(pac.nome)} (Espécie: ${formatCurrency(pac.valorEspecie ?? pac.valorFechado)} | Pix/Cartão: ${formatCurrency(pac.valorCartaoPix ?? pac.valorFechado)})</option>`).join('');
+        adicionarBuscaAoSelect(selectProcedimento, 'pacote');
         return;
     }
 
@@ -287,6 +486,7 @@ function popularSelectProcedimentos() {
     if (listaFinal.length > 0) {
         selectProcedimento.value = String(listaFinal[0].id);
     }
+    adicionarBuscaAoSelect(selectProcedimento, 'procedimento');
 }
 
 export function verificarAlertasAgendamento() {}
@@ -906,17 +1106,14 @@ export function abrirModalAgendamento(hora = '', profId = '', data = '') {
     selPac.innerHTML = clinicaState.pacientes.map(p => `<option value="${p.id}">${escapeHTML(p.nome)}</option>`).join('');
     selProf.innerHTML = profsPermitidos.map(p => `<option value="${p.id}">${escapeHTML(p.nome)} (${escapeHTML(p.especialidade)})</option>`).join('');
     
-    if (clinicaState.sessao.perfil === 'Doutor(a)') {
-        selProf.style.pointerEvents = 'none';
-        selProf.style.backgroundColor = '#e2e8f0';
-    } else {
-        selProf.style.pointerEvents = 'auto';
-        selProf.style.backgroundColor = '';
-    }
+    selProf.disabled = clinicaState.sessao.perfil === 'Doutor(a)';
     
     document.getElementById('agenda-data').value = data || inputDataAgenda.value;
     document.getElementById('agenda-hora').value = hora || "08:00"; 
     if (profId) selProf.value = profId;
+
+    adicionarBuscaAoSelect(selPac, 'paciente');
+    adicionarBuscaAoSelect(selProf, 'profissional');
 
     const tipoAtendimento = document.getElementById('agenda-tipo');
     if (tipoAtendimento) tipoAtendimento.value = 'procedimento_avulso';
@@ -964,6 +1161,7 @@ export function abrirModalBloqueio() {
     }
 
     selProf.innerHTML = profsPermitidos.map(p => `<option value="${p.id}">${escapeHTML(p.nome)} (${escapeHTML(p.especialidade)})</option>`).join('');
+    adicionarBuscaAoSelect(selProf, 'profissional'); // <-- ADICIONE ESTA LINHA
 
     document.getElementById('bloqueio-data').value = inputDataAgenda.value;
     document.getElementById('bloqueio-tipo').value = 'dia_inteiro';
@@ -998,6 +1196,7 @@ export function atualizarAgenda() {
     const valorAnterior = filtroProfissional.value;
     filtroProfissional.innerHTML = opcoesFiltro;
     if (mostrarTodos && valorAnterior) filtroProfissional.value = valorAnterior;
+    adicionarBuscaAoSelect(filtroProfissional, 'profissional na agenda');
 
     const viewDia = document.getElementById('agenda-view-dia');
     const viewSemana = document.getElementById('agenda-view-semana');

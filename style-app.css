@@ -579,6 +579,93 @@ select.input-premium { cursor: pointer; }
     background-color: var(--surface-color);
 }
 
+/* =========================================================
+   COMBOBOX DE PESQUISA INTELIGENTE (AGENDA / PROCEDIMENTOS)
+   ========================================================= */
+.agenda-search-control {
+    position: relative;
+    width: 100%;
+    min-width: 210px;
+}
+.agenda-search-source {
+    display: none !important;
+}
+.agenda-search-input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+}
+.agenda-search-input-wrap .agenda-search-icon {
+    position: absolute;
+    left: 12px;
+    color: var(--text-light);
+    font-size: 0.85rem;
+    pointer-events: none;
+}
+.agenda-search-input {
+    padding-left: 34px !important;
+    padding-right: 32px !important;
+    cursor: text;
+}
+.agenda-search-clear {
+    position: absolute;
+    right: 8px;
+    background: none;
+    border: none;
+    color: var(--text-light);
+    font-size: 0.9rem;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 4px;
+    display: none;
+}
+.agenda-search-clear:hover {
+    color: #dc3545;
+    background: #f1f5f9;
+}
+.agenda-search-results {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    z-index: 3000;
+    max-height: 230px;
+    overflow-y: auto;
+    padding: 6px;
+    border: 1px solid var(--primary-light);
+    border-radius: 10px;
+    background: var(--surface-color);
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.22);
+}
+.agenda-search-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 9px 12px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-main);
+    font-size: 0.88rem;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.1s ease;
+}
+.agenda-search-option:hover,
+.agenda-search-option.is-highlighted {
+    background: #e0f2fe;
+    color: var(--primary-color);
+    font-weight: 600;
+}
+.agenda-search-empty {
+    padding: 12px;
+    color: var(--text-light);
+    font-size: 0.85rem;
+    text-align: center;
+}
+
 .input-form, .textarea-form {
     width: 100%;
     border: 1px solid var(--border-color);

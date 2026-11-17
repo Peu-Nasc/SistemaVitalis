@@ -6,11 +6,13 @@ import { criarNotificacao } from './notificacoes.js';
 import { registrarAuditoria } from './auditoria.js';
 import { valorDoProcedimentoParaProfissional } from './procedimentos.js';
 
+console.info('[agenda.js] versão com escala por profissional carregada');
 let agendamentoIdParaAtualizar = null;
 let notificacaoIdEmResolucao = null;
 let periodoAtual = 'dia';
 let filtroStatusAtual = 'todos';
 let pagamentoAdicionalConfirmado = false;
+let datasEscalaPendentes = [];
 const buscasAgenda = new WeakMap();
 
 const NOMES_MES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -43,6 +45,17 @@ function obterBloqueio(profId, data, hora) {
         if (String(b.profId) !== String(profId) || b.data !== data) return false;
         if (b.tipo === 'dia_inteiro') return true;
         return hora >= b.horaInicio && hora <= b.horaFim;
+    });
+}
+
+function obterBloqueioNoIntervalo(profId, data, inicioMinutos, fimMinutos) {
+    return clinicaState.agenda.bloqueios.find(b => {
+        if (String(b.profId) !== String(profId) || b.data !== data) return false;
+        if (b.tipo === 'dia_inteiro') return true;
+        const inicioBloqueio = minutosDoHorario(b.horaInicio);
+        const fimBloqueio = minutosDoHorario(b.horaFim);
+        return inicioBloqueio !== null && fimBloqueio !== null
+            && inicioBloqueio < fimMinutos && fimBloqueio > inicioMinutos;
     });
 }
 
@@ -545,6 +558,319 @@ function renderizarBarraResumoRecepcao(dataSelecionada) {
     `).join('');
 }
 
+function profissionaisPermitidosNaAgenda() {
+    if (clinicaState.sessao.perfil !== 'Doutor(a)') return clinicaState.profissionais;
+    return clinicaState.profissionais.filter(p =>
+        p.nome.trim().toLowerCase() === clinicaState.sessao.nome.trim().toLowerCase()
+    );
+}
+
+function obterConfiguracaoEscala(profissional) {
+    const configSalva = profissional?.agendaConfig;
+    if (!configSalva) {
+        return {
+            frequencia: 'semanal',
+            intervalo: 40,
+            diasSemana: [2, 3, 4, 5],
+            datas: [],
+            manhaInicio: '08:40',
+            manhaFim: '12:00',
+            tardeInicio: '14:00',
+            tardeFim: '17:20'
+        };
+    }
+
+    return {
+        frequencia: configSalva.frequencia === 'mensal' ? 'mensal' : 'semanal',
+        intervalo: Number(configSalva.intervalo) || 40,
+        diasSemana: Array.isArray(configSalva.diasSemana) ? configSalva.diasSemana.map(Number) : [],
+        datas: Array.isArray(configSalva.datas) ? [...new Set(configSalva.datas)].sort() : [],
+        manhaInicio: configSalva.manhaInicio || '',
+        manhaFim: configSalva.manhaFim || '',
+        tardeInicio: configSalva.tardeInicio || '',
+        tardeFim: configSalva.tardeFim || ''
+    };
+}
+
+function preencherFormEscala(profissional) {
+    const config = obterConfiguracaoEscala(profissional);
+    document.getElementById('escala-tipo-frequencia').value = config.frequencia;
+    document.getElementById('escala-intervalo').value = String(config.intervalo);
+    document.getElementById('escala-manha-inicio').value = config.manhaInicio;
+    document.getElementById('escala-manha-fim').value = config.manhaFim;
+    document.getElementById('escala-tarde-inicio').value = config.tardeInicio;
+    document.getElementById('escala-tarde-fim').value = config.tardeFim;
+    document.querySelectorAll('input[name="escala-dia-sem"]').forEach((checkbox) => {
+        checkbox.checked = config.diasSemana.includes(Number(checkbox.value));
+    });
+    datasEscalaPendentes = config.datas;
+    renderizarChipsDatasEscala();
+    atualizarTipoFrequenciaEscala();
+}
+
+function renderizarChipsDatasEscala() {
+    const container = document.getElementById('escala-datas-chips');
+    container.innerHTML = datasEscalaPendentes.length
+        ? datasEscalaPendentes.map(data => `
+            <span class="anexo-chip">
+                ${escapeHTML(data.split('-').reverse().join('/'))}
+                <button type="button" class="btn-remover-data-escala" data-data="${escapeHTML(data)}" aria-label="Remover data ${escapeHTML(data)}">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </span>
+        `).join('')
+        : '<small>Nenhuma data incluída.</small>';
+}
+
+function atualizarTipoFrequenciaEscala() {
+    const mensal = document.getElementById('escala-tipo-frequencia').value === 'mensal';
+    document.getElementById('escala-bloco-semanal').hidden = mensal;
+    document.getElementById('escala-bloco-mensal').hidden = !mensal;
+}
+
+function minutosDoHorario(horario) {
+    if (!horario || !/^\d{2}:\d{2}$/.test(horario)) return null;
+    const [hora, minuto] = horario.split(':').map(Number);
+    return hora * 60 + minuto;
+}
+
+function horarioDeMinutos(minutos) {
+    return `${String(Math.floor(minutos / 60)).padStart(2, '0')}:${String(minutos % 60).padStart(2, '0')}`;
+}
+
+function obterTurnosEscala(config) {
+    return [
+        { nome: 'Manhã', inicio: config.manhaInicio, fim: config.manhaFim },
+        { nome: 'Tarde', inicio: config.tardeInicio, fim: config.tardeFim }
+    ].filter(turno => turno.inicio && turno.fim);
+}
+
+function dataEstaNaEscala(config, data) {
+    if (config.frequencia === 'mensal') return config.datas.includes(data);
+    return config.diasSemana.includes(parseDataLocal(data).getDay());
+}
+
+// ====== ESCALA COMO FONTE DA VERDADE DA AGENDA ======
+const HORARIOS_PADRAO = ['08:00', '09:00', '10:00', '11:00', '13:00', '14:00', '15:00', '16:00', '17:00'];
+
+// Horários (HH:MM) em que o profissional atende na data, conforme a escala.
+//  - null  => escala nunca configurada (mantém o comportamento antigo, de hora em hora)
+//  - []    => tem escala, mas NÃO atende nesta data
+function obterHorariosDaEscala(profissional, data) {
+    if (!profissional || !profissional.agendaConfig) return null;
+    const config = obterConfiguracaoEscala(profissional);
+    if (!data || !dataEstaNaEscala(config, data)) return [];
+
+    const horarios = [];
+    obterTurnosEscala(config).forEach((turno) => {
+        const inicio = minutosDoHorario(turno.inicio);
+        const fim = minutosDoHorario(turno.fim);
+        if (inicio === null || fim === null) return;
+        for (let minuto = inicio; minuto + config.intervalo <= fim; minuto += config.intervalo) {
+            horarios.push(horarioDeMinutos(minuto));
+        }
+    });
+    return horarios;
+}
+
+function proximasDatasDaEscala(profissional, aPartirDe, maximo = 3) {
+    if (!profissional || !profissional.agendaConfig) return [];
+    const config = obterConfiguracaoEscala(profissional);
+    if (config.frequencia === 'mensal') {
+        return config.datas.filter(d => d >= aPartirDe).slice(0, maximo);
+    }
+    const datas = [];
+    const cursor = parseDataLocal(aPartirDe);
+    for (let i = 0; i < 90 && datas.length < maximo; i += 1) {
+        if (config.diasSemana.includes(cursor.getDay())) datas.push(paraIsoDate(cursor));
+        cursor.setDate(cursor.getDate() + 1);
+    }
+    return datas;
+}
+
+function dataBR(iso) {
+    return iso ? iso.split('-').reverse().join('/') : '';
+}
+
+// Preenche o <select> de horário do "Novo Agendamento" só com as vagas
+// da escala do profissional escolhido na data escolhida.
+function atualizarHorariosDoAgendamento(horaPreferida = '') {
+    const selectHora = document.getElementById('agenda-hora');
+    const aviso = document.getElementById('agenda-aviso-escala');
+    if (!selectHora) return;
+
+    const profId = document.getElementById('agenda-profissional').value;
+    const data = document.getElementById('agenda-data').value;
+    const prof = clinicaState.profissionais.find(p => String(p.id) === String(profId));
+    const anterior = horaPreferida || selectHora.value;
+
+    let horarios = obterHorariosDaEscala(prof, data);
+    let mensagem = '';
+    if (horarios === null) {
+        horarios = HORARIOS_PADRAO;
+        if (prof) mensagem = 'A escala deste profissional ainda não foi configurada (usando horários de 1 em 1 hora). Configure em Agenda > Disponibilidade / Escala.';
+    } else if (horarios.length === 0) {
+        const proximas = proximasDatasDaEscala(prof, data || paraIsoDate(new Date()));
+        mensagem = `${prof.nome} não atende em ${dataBR(data)}.` + (proximas.length ? ` Próximas datas: ${proximas.map(dataBR).join(', ')}.` : '');
+    }
+
+    const indisponivel = (h) => {
+        const ocupado = clinicaState.agenda.agendamentos.some(a =>
+            String(a.profId) === String(profId) && a.data === data && a.hora === h && a.status !== 'cancelado');
+        if (ocupado) return 'ocupado';
+        if (obterBloqueio(profId, data, h)) return 'bloqueado';
+        return '';
+    };
+
+    selectHora.innerHTML = horarios.length
+        ? horarios.map(h => {
+            const motivo = indisponivel(h);
+            return `<option value="${h}"${motivo ? ' disabled' : ''}>${h}${motivo ? ` (${motivo})` : ''}</option>`;
+        }).join('')
+        : '<option value="">Sem horários nesta data</option>';
+
+    const livres = horarios.filter(h => !indisponivel(h));
+    selectHora.value = livres.includes(anterior) ? anterior : (livres[0] || '');
+
+    if (aviso) {
+        aviso.textContent = mensagem;
+        aviso.hidden = !mensagem;
+    }
+    atualizarDisponibilidadeSalas();
+}
+
+function renderizarAtalhosDisponibilidade(config) {
+    const container = document.getElementById('disp-atalhos-datas');
+    const inputData = document.getElementById('disp-data-consulta');
+    const hoje = paraIsoDate(new Date());
+    let datas = [];
+
+    if (config.frequencia === 'mensal') {
+        datas = config.datas.filter(data => data >= hoje).slice(0, 5);
+    } else {
+        const data = parseDataLocal(hoje);
+        for (let i = 0; i < 45 && datas.length < 5; i += 1) {
+            const iso = paraIsoDate(data);
+            if (config.diasSemana.includes(data.getDay())) datas.push(iso);
+            data.setDate(data.getDate() + 1);
+        }
+    }
+
+    container.innerHTML = datas.map(data => `
+        <button type="button" class="btn-secondary btn-compact" data-disp-data="${escapeHTML(data)}">
+            ${escapeHTML(data.split('-').reverse().join('/'))}
+        </button>
+    `).join('');
+    container.querySelectorAll('[data-disp-data]').forEach((button) => {
+        button.addEventListener('click', () => {
+            inputData.value = button.dataset.dispData;
+            renderizarDisponibilidade();
+        });
+    });
+}
+
+function renderizarDisponibilidade() {
+    const selectProfissional = document.getElementById('disp-profissional');
+    const profissional = clinicaState.profissionais.find(p => String(p.id) === String(selectProfissional.value));
+    const data = document.getElementById('disp-data-consulta').value;
+    const resumo = document.getElementById('disp-resumo-escala');
+    const grade = document.getElementById('disp-grade-vagas');
+
+    if (!profissional) {
+        resumo.textContent = 'Nenhum profissional disponível para esta conta.';
+        grade.replaceChildren();
+        document.getElementById('disp-atalhos-datas').replaceChildren();
+        return;
+    }
+
+    const config = obterConfiguracaoEscala(profissional);
+    const frequencia = config.frequencia === 'mensal' ? 'Datas específicas' : 'Semanal';
+    if (!profissional.agendaConfig) {
+        resumo.textContent = 'A escala deste profissional ainda não foi configurada. Acesse “Configurar Dias e Intervalos” para definir os horários.';
+        grade.replaceChildren();
+        renderizarAtalhosDisponibilidade(config);
+        return;
+    }
+
+    resumo.textContent = `${frequencia} • Intervalos de ${config.intervalo} minutos • ${obterTurnosEscala(config).map(t => `${t.nome}: ${t.inicio}–${t.fim}`).join(' | ')}`;
+    renderizarAtalhosDisponibilidade(config);
+
+    if (!data || !dataEstaNaEscala(config, data)) {
+        grade.innerHTML = '<div class="highlight-box full-width">Este profissional não atende na data selecionada.</div>';
+        return;
+    }
+
+    const vagas = [];
+    obterTurnosEscala(config).forEach((turno) => {
+        const inicio = minutosDoHorario(turno.inicio);
+        const fim = minutosDoHorario(turno.fim);
+        if (inicio === null || fim === null) return;
+
+        for (let minuto = inicio; minuto + config.intervalo <= fim; minuto += config.intervalo) {
+            const hora = horarioDeMinutos(minuto);
+            const fimVagaMinutos = minuto + config.intervalo;
+            const agendamento = clinicaState.agenda.agendamentos.find(a =>
+                String(a.profId) === String(profissional.id)
+                && a.data === data
+                && a.status !== 'cancelado'
+                && minutosDoHorario(a.hora) !== null
+                && minutosDoHorario(a.hora) < fimVagaMinutos
+                && minutosDoHorario(a.hora) + config.intervalo > minuto
+            );
+            const bloqueio = obterBloqueioNoIntervalo(profissional.id, data, minuto, fimVagaMinutos);
+            const estado = bloqueio ? 'bloqueado' : agendamento ? 'ocupado' : 'livre';
+            const textoEstado = bloqueio ? 'Bloqueado' : agendamento ? 'Ocupado' : 'Livre';
+            const tag = estado === 'livre' ? 'button' : 'div';
+            const atributos = estado === 'livre' ? `type="button" data-disp-hora="${hora}"` : '';
+            vagas.push(`
+                <${tag} class="disponibilidade-slot ${estado}" ${atributos}>
+                    <strong>${hora}</strong>
+                    <span>${turno.nome} · ${textoEstado}</span>
+                </${tag}>
+            `);
+        }
+    });
+
+    grade.innerHTML = vagas.length
+        ? vagas.join('')
+        : '<div class="highlight-box full-width">Não há horários configurados para esta data.</div>';
+    grade.querySelectorAll('[data-disp-hora]').forEach((button) => {
+        button.addEventListener('click', () => {
+            document.getElementById('modal-disponibilidade').classList.remove('active');
+            abrirModalAgendamento(button.dataset.dispHora, profissional.id, data);
+        });
+    });
+}
+
+function abrirModalDisponibilidade() {
+    const modal = document.getElementById('modal-disponibilidade');
+    const select = document.getElementById('disp-profissional');
+    const profissionais = profissionaisPermitidosNaAgenda();
+    const filtro = document.getElementById('filtro-profissional').value;
+    const profissionalInicial = profissionais.find(p => String(p.id) === String(filtro)) || profissionais[0];
+
+    select.innerHTML = profissionais.map(p =>
+        `<option value="${escapeHTML(p.id)}">${escapeHTML(p.nome)} (${escapeHTML(p.especialidade || '')})</option>`
+    ).join('');
+    if (profissionalInicial) select.value = String(profissionalInicial.id);
+    document.getElementById('disp-data-consulta').value =
+        document.getElementById('data-agenda').value || paraIsoDate(new Date());
+    preencherFormEscala(profissionalInicial);
+    trocarAbaDisponibilidade('vagas');
+    modal.classList.add('active');
+    renderizarDisponibilidade();
+}
+
+function trocarAbaDisponibilidade(aba) {
+    const mostrarVagas = aba === 'vagas';
+    document.getElementById('aba-ver-vagas').hidden = !mostrarVagas;
+    document.getElementById('form-escala-profissional').hidden = mostrarVagas;
+    document.getElementById('tab-btn-ver-vagas').classList.toggle('active', mostrarVagas);
+    document.getElementById('tab-btn-ver-vagas').setAttribute('aria-selected', String(mostrarVagas));
+    document.getElementById('tab-btn-config-escala').classList.toggle('active', !mostrarVagas);
+    document.getElementById('tab-btn-config-escala').setAttribute('aria-selected', String(!mostrarVagas));
+}
+
 export function initAgenda() {
     const modalAgenda = document.getElementById('modal-agendamento');
     const inputDataAgenda = document.getElementById('data-agenda');
@@ -558,7 +884,8 @@ export function initAgenda() {
     inputDataAgenda.addEventListener('change', atualizarAgenda);
     filtroProfissional.addEventListener('change', atualizarAgenda);
 
-    document.getElementById('agenda-data').addEventListener('change', atualizarDisponibilidadeSalas);
+    document.getElementById('agenda-data').addEventListener('change', () => atualizarHorariosDoAgendamento());
+    document.getElementById('agenda-profissional').addEventListener('change', () => atualizarHorariosDoAgendamento());
     document.getElementById('agenda-hora').addEventListener('change', atualizarDisponibilidadeSalas);
 
     const tipoAtendimento = document.getElementById('agenda-tipo');
@@ -582,6 +909,124 @@ export function initAgenda() {
     const modalBloqueio = document.getElementById('modal-bloqueio');
     const selectTipoBloqueio = document.getElementById('bloqueio-tipo');
     const grupoHorarioEspecifico = document.getElementById('bloqueio-horario-especifico-group');
+
+    const modalDisponibilidade = document.getElementById('modal-disponibilidade');
+    document.getElementById('btn-checar-disponibilidade').addEventListener('click', abrirModalDisponibilidade);
+    document.getElementById('btn-close-disponibilidade').addEventListener('click', () => modalDisponibilidade.classList.remove('active'));
+    document.getElementById('disp-profissional').addEventListener('change', () => {
+        const profissional = clinicaState.profissionais.find(p => String(p.id) === document.getElementById('disp-profissional').value);
+        preencherFormEscala(profissional);
+        renderizarDisponibilidade();
+    });
+    document.getElementById('disp-data-consulta').addEventListener('change', renderizarDisponibilidade);
+    document.getElementById('tab-btn-ver-vagas').addEventListener('click', () => trocarAbaDisponibilidade('vagas'));
+    document.getElementById('tab-btn-config-escala').addEventListener('click', () => trocarAbaDisponibilidade('escala'));
+    document.getElementById('escala-tipo-frequencia').addEventListener('change', atualizarTipoFrequenciaEscala);
+    document.getElementById('btn-add-data-escala').addEventListener('click', () => {
+        const input = document.getElementById('escala-nova-data-input');
+        if (!input.value) {
+            showToast('Selecione uma data para incluir na escala.', 'error');
+            return;
+        }
+        if (datasEscalaPendentes.includes(input.value)) {
+            showToast('Esta data já foi incluída.', 'error');
+            return;
+        }
+        datasEscalaPendentes = [...datasEscalaPendentes, input.value].sort();
+        input.value = '';
+        renderizarChipsDatasEscala();
+    });
+    document.getElementById('escala-datas-chips').addEventListener('click', (event) => {
+        const button = event.target.closest('.btn-remover-data-escala');
+        if (!button) return;
+        datasEscalaPendentes = datasEscalaPendentes.filter(data => data !== button.dataset.data);
+        renderizarChipsDatasEscala();
+    });
+    document.getElementById('form-escala-profissional').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (!['admin', 'recepcao'].includes(clinicaState.sessao.perfil)) {
+            showToast('Somente administração ou recepção pode configurar a escala.', 'error');
+            return;
+        }
+
+        const profissionalId = document.getElementById('disp-profissional').value;
+        const profissional = clinicaState.profissionais.find(p => String(p.id) === String(profissionalId));
+        if (!profissional) {
+            showToast('Selecione um profissional válido.', 'error');
+            return;
+        }
+
+        const frequencia = document.getElementById('escala-tipo-frequencia').value;
+        const intervalo = Number(document.getElementById('escala-intervalo').value);
+        const diasSemana = Array.from(document.querySelectorAll('input[name="escala-dia-sem"]:checked'))
+            .map(checkbox => Number(checkbox.value));
+        const config = {
+            frequencia,
+            intervalo,
+            diasSemana,
+            datas: [...datasEscalaPendentes],
+            manhaInicio: document.getElementById('escala-manha-inicio').value,
+            manhaFim: document.getElementById('escala-manha-fim').value,
+            tardeInicio: document.getElementById('escala-tarde-inicio').value,
+            tardeFim: document.getElementById('escala-tarde-fim').value
+        };
+        const turnos = obterTurnosEscala(config);
+        const horarioManhaFim = minutosDoHorario(config.manhaFim);
+        const horarioTardeInicio = minutosDoHorario(config.tardeInicio);
+
+        if (!['semanal', 'mensal'].includes(frequencia)) {
+            showToast('Selecione uma frequência de atendimento válida.', 'error');
+            return;
+        }
+        if (!Number.isInteger(intervalo) || ![20, 30, 40, 45, 50, 60].includes(intervalo)) {
+            showToast('Selecione um intervalo válido entre pacientes.', 'error');
+            return;
+        }
+        if ((config.manhaInicio && !config.manhaFim) || (!config.manhaInicio && config.manhaFim)
+            || (config.tardeInicio && !config.tardeFim) || (!config.tardeInicio && config.tardeFim)
+            || turnos.some(turno =>
+                minutosDoHorario(turno.inicio) === null
+                || minutosDoHorario(turno.fim) === null
+                || minutosDoHorario(turno.inicio) >= minutosDoHorario(turno.fim)
+            )
+            || (config.manhaFim && config.tardeInicio && horarioTardeInicio < horarioManhaFim)) {
+            showToast('Confira os horários: cada turno precisa de início e fim válidos, sem sobreposição.', 'error');
+            return;
+        }
+        if (turnos.length === 0 || turnos.some(turno =>
+            minutosDoHorario(turno.fim) - minutosDoHorario(turno.inicio) < intervalo
+        )) {
+            showToast('Informe ao menos um turno com duração suficiente para um atendimento.', 'error');
+            return;
+        }
+        if (frequencia === 'semanal' && diasSemana.length === 0) {
+            showToast('Selecione ao menos um dia da semana.', 'error');
+            return;
+        }
+        if (frequencia === 'mensal' && config.datas.length === 0) {
+            showToast('Inclua ao menos uma data específica para esta escala.', 'error');
+            return;
+        }
+
+        const btnSalvar = event.currentTarget.querySelector('button[type="submit"]');
+        await comEstadoDeCarregamento(btnSalvar, 'Salvando...', async () => {
+            try {
+                await updateDoc(doc(db, 'profissionais', profissionalId), { agendaConfig: config });
+                profissional.agendaConfig = config;
+                renderizarDisponibilidade();
+                trocarAbaDisponibilidade('vagas');
+                showToast('Escala do profissional salva com sucesso.', 'success');
+                await registrarAuditoria({
+                    acao: 'Edição',
+                    modulo: 'Agenda',
+                    descricao: `Escala de ${profissional.nome} atualizada (${frequencia})`
+                });
+            } catch (error) {
+                console.error('Erro ao salvar escala do profissional:', error);
+                showToast('Falha ao salvar a escala. Verifique sua conexão e permissão de acesso.', 'error');
+            }
+        });
+    });
 
     document.getElementById('btn-novo-bloqueio').addEventListener('click', () => abrirModalBloqueio());
     document.getElementById('btn-close-bloqueio').addEventListener('click', () => modalBloqueio.classList.remove('active'));
@@ -687,6 +1132,14 @@ export function initAgenda() {
 
             if (!sala) {
                 showToast('Selecione a sala onde a consulta vai acontecer.', 'error');
+                return;
+            }
+
+            // A escala do profissional manda: não agenda fora dos dias/horários dele(a)
+            const profissionalEscolhido = clinicaState.profissionais.find(p => String(p.id) === String(profId));
+            const horariosDaEscala = obterHorariosDaEscala(profissionalEscolhido, dataAgendamento);
+            if (horariosDaEscala !== null && !horariosDaEscala.includes(horaAgendamento)) {
+                showToast(`${profissionalEscolhido.nome} não atende em ${dataBR(dataAgendamento)} às ${horaAgendamento || '--:--'}. Escolha um dia e horário da escala dele(a).`, 'error');
                 return;
             }
 
@@ -1109,7 +1562,6 @@ export function abrirModalAgendamento(hora = '', profId = '', data = '') {
     selProf.disabled = clinicaState.sessao.perfil === 'Doutor(a)';
     
     document.getElementById('agenda-data').value = data || inputDataAgenda.value;
-    document.getElementById('agenda-hora').value = hora || "08:00"; 
     if (profId) selProf.value = profId;
 
     adicionarBuscaAoSelect(selPac, 'paciente');
@@ -1120,7 +1572,7 @@ export function abrirModalAgendamento(hora = '', profId = '', data = '') {
 
     popularSelectProcedimentos();
     document.getElementById('agenda-sala').value = '';
-    atualizarDisponibilidadeSalas();
+    atualizarHorariosDoAgendamento(hora);
     atualizarVisualizacaoProcedimento();
     
     modalAgenda.classList.add('active');
@@ -1222,14 +1674,26 @@ export function atualizarAgenda() {
 
     const visaoAtual = selectVisao ? selectVisao.value : 'profissionais';
 
-    const baseTimes = ['08:00', '09:00', '10:00', '11:00', '13:00', '14:00', '15:00', '16:00', '17:00'];
-    const timesNoDia = new Set(baseTimes);
+    // Quais profissionais aparecem na grade (e portanto quais horários valem)
+    const filtroPrevio = filtroProfissional.value;
+    const profsDaGrade = visaoAtual === 'salas'
+        ? []
+        : (filtroPrevio === 'todos' ? profsPermitidos : profsPermitidos.filter(p => p.id == filtroPrevio));
 
+    const timesNoDia = new Set();
+    if (visaoAtual === 'salas' || profsDaGrade.length === 0) HORARIOS_PADRAO.forEach(h => timesNoDia.add(h));
+    profsDaGrade.forEach(p => {
+        const horariosEscala = obterHorariosDaEscala(p, dataSelecionada);
+        (horariosEscala === null ? HORARIOS_PADRAO : horariosEscala).forEach(h => timesNoDia.add(h));
+    });
+
+    const idsNaGrade = new Set(profsDaGrade.map(p => String(p.id)));
+    const aparece = (profId) => visaoAtual === 'salas' || idsNaGrade.size === 0 || idsNaGrade.has(String(profId));
     clinicaState.agenda.agendamentos.forEach(a => {
-        if (a.data === dataSelecionada) timesNoDia.add(a.hora);
+        if (a.data === dataSelecionada && a.status !== 'cancelado' && aparece(a.profId)) timesNoDia.add(a.hora);
     });
     clinicaState.agenda.bloqueios.forEach(b => {
-        if (b.data === dataSelecionada && b.tipo === 'horario') timesNoDia.add(b.horaInicio);
+        if (b.data === dataSelecionada && b.tipo === 'horario' && aparece(b.profId)) timesNoDia.add(b.horaInicio);
     });
 
     const appointmentTimes = Array.from(timesNoDia).sort();
@@ -1292,9 +1756,18 @@ export function atualizarAgenda() {
     }
     
     profsParaExibir.forEach(prof => {
+        const horariosDaEscala = obterHorariosDaEscala(prof, dataSelecionada);
+        console.info('[agenda] escala de', prof.nome, '->', prof.agendaConfig ? 'configurada' : 'SEM agendaConfig', horariosDaEscala);
+        const naoAtendeHoje = horariosDaEscala !== null && horariosDaEscala.length === 0;
+        let avisoEscala = '';
+        if (naoAtendeHoje) {
+            const proximas = proximasDatasDaEscala(prof, dataSelecionada);
+            avisoEscala = `<small class="prof-fora-escala">Não atende nesta data${proximas.length ? ' · próximas: ' + proximas.map(dataBR).join(', ') : ''}</small>`;
+        }
+
         const coluna = document.createElement('div');
         coluna.className = 'professional-column';
-        coluna.innerHTML = `<div class="prof-header"><strong>${escapeHTML(prof.nome)}</strong><small>${escapeHTML(prof.especialidade)}</small></div>`;
+        coluna.innerHTML = `<div class="prof-header"><strong>${escapeHTML(prof.nome)}</strong><small>${escapeHTML(prof.especialidade)}</small>${avisoEscala}</div>`;
         
         appointmentTimes.forEach(hora => {
             const agendamento = clinicaState.agenda.agendamentos.find(a => 
@@ -1304,6 +1777,10 @@ export function atualizarAgenda() {
             const slot = document.createElement('div');
             if (agendamento) {
                 renderizarSlotOcupado(slot, agendamento);
+            } else if (horariosDaEscala !== null && !horariosDaEscala.includes(hora)) {
+                slot.className = 'appointment-slot unavailable';
+                slot.title = 'Fora da escala deste profissional';
+                slot.textContent = '—';
             } else {
                 const bloqueio = obterBloqueio(prof.id, dataSelecionada, hora);
                 if (bloqueio) {

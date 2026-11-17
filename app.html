@@ -284,8 +284,11 @@
 
                             <span class="agenda-controls-spacer"></span>
 
+                            <button class="btn-secondary" id="btn-checar-disponibilidade" type="button">
+                                <i class="fa-solid fa-calendar-check"></i> Disponibilidade / Escala
+                            </button>
                             <button class="btn-secondary" id="btn-novo-bloqueio" type="button" data-open-modal="modal-bloqueio"><i class="fa-solid fa-lock"></i> Bloquear Horário</button>
-                            <button class="btn-primary" id="btn-novo-agendamento" type="button" data-open-modal="modal-agendamento">+ Agendar</button>
+                            <button class="btn-primary" id="btn-novo-agendamento" type="button" data-open-modal="modal-agendamento"><i class="fa-solid fa-user-plus"></i> + Agendar Paciente</button>
                         </div>
                     </div>
 
@@ -1669,7 +1672,8 @@
                     <div class="form-group"><label>Data *</label><input type="date" id="agenda-data" class="input-premium" required></div>
                     <div class="form-group">
                         <label>Horário *</label>
-                        <input type="time" id="agenda-hora" class="input-premium" required>
+                        <select id="agenda-hora" class="input-premium" required></select>
+                        <small id="agenda-aviso-escala" class="aviso-escala" hidden></small>
                     </div>
                     <div class="form-actions full-width"><button type="submit" class="btn-primary">Confirmar Horário</button></div>
                 </form>
@@ -1714,6 +1718,108 @@
                     </div>
 
                     <div class="form-actions full-width"><button type="submit" class="btn-primary"><i class="fa-solid fa-lock"></i> Bloquear</button></div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================== MODAL DE DISPONIBILIDADE E ESCALA ================== -->
+    <div id="modal-disponibilidade" class="modal-overlay">
+        <div class="modal-content modal-lg">
+            <header class="modal-header">
+                <h2><i class="fa-solid fa-user-clock"></i> Agenda e Disponibilidade por Profissional</h2>
+                <button class="btn-close-modal" id="btn-close-disponibilidade" type="button" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button>
+            </header>
+            <div class="modal-body">
+                <div class="form-group full-width mb-15">
+                    <label for="disp-profissional">Profissional *</label>
+                    <select id="disp-profissional" class="input-premium"></select>
+                </div>
+
+                <div class="periodo-toggle disponibilidade-tabs" role="tablist" aria-label="Disponibilidade do profissional">
+                    <button type="button" id="tab-btn-ver-vagas" class="active" role="tab" aria-selected="true" aria-controls="aba-ver-vagas">
+                        <i class="fa-solid fa-magnifying-glass"></i> Checar Horários Livres
+                    </button>
+                    <button type="button" id="tab-btn-config-escala" role="tab" aria-selected="false" aria-controls="form-escala-profissional">
+                        <i class="fa-solid fa-sliders"></i> Configurar Dias e Intervalos
+                    </button>
+                </div>
+
+                <section id="aba-ver-vagas" role="tabpanel" aria-labelledby="tab-btn-ver-vagas">
+                    <div id="disp-resumo-escala" class="highlight-box mb-15"></div>
+                    <div class="disponibilidade-data">
+                        <label for="disp-data-consulta">Ver vagas na data:</label>
+                        <input type="date" id="disp-data-consulta" class="input-premium">
+                        <div id="disp-atalhos-datas" class="disponibilidade-atalhos"></div>
+                    </div>
+                    <div id="disp-grade-vagas" class="disponibilidade-grade"></div>
+                </section>
+
+                <form id="form-escala-profissional" class="form-grid" role="tabpanel" aria-labelledby="tab-btn-config-escala" hidden>
+                    <div class="form-group">
+                        <label for="escala-tipo-frequencia">Frequência de Atendimento *</label>
+                        <select id="escala-tipo-frequencia" class="input-premium">
+                            <option value="semanal">Fixo na Semana</option>
+                            <option value="mensal">Datas Específicas / Mensal</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="escala-intervalo">Intervalo entre Pacientes *</label>
+                        <select id="escala-intervalo" class="input-premium">
+                            <option value="20">De 20 em 20 minutos</option>
+                            <option value="30">De 30 em 30 minutos</option>
+                            <option value="40" selected>De 40 em 40 minutos</option>
+                            <option value="45">De 45 em 45 minutos</option>
+                            <option value="50">De 50 em 50 minutos</option>
+                            <option value="60">De 1 em 1 hora (60 min)</option>
+                        </select>
+                    </div>
+
+                    <div id="escala-bloco-semanal" class="form-group full-width highlight-box">
+                        <span class="form-group-label">Dias da semana em que atende na clínica:</span>
+                        <div class="disponibilidade-dias">
+                            <label class="checkbox-label"><input type="checkbox" name="escala-dia-sem" value="1"> Seg</label>
+                            <label class="checkbox-label"><input type="checkbox" name="escala-dia-sem" value="2"> Ter</label>
+                            <label class="checkbox-label"><input type="checkbox" name="escala-dia-sem" value="3"> Qua</label>
+                            <label class="checkbox-label"><input type="checkbox" name="escala-dia-sem" value="4"> Qui</label>
+                            <label class="checkbox-label"><input type="checkbox" name="escala-dia-sem" value="5"> Sex</label>
+                            <label class="checkbox-label"><input type="checkbox" name="escala-dia-sem" value="6"> Sáb</label>
+                            <label class="checkbox-label"><input type="checkbox" name="escala-dia-sem" value="0"> Dom</label>
+                        </div>
+                    </div>
+
+                    <div id="escala-bloco-mensal" class="form-group full-width highlight-box" hidden>
+                        <label for="escala-nova-data-input">Datas em que este especialista atende:</label>
+                        <div class="disponibilidade-data">
+                            <input type="date" id="escala-nova-data-input" class="input-premium">
+                            <button type="button" class="btn-secondary btn-compact" id="btn-add-data-escala" data-sem-cooldown>
+                                <i class="fa-solid fa-plus"></i> Incluir Data
+                            </button>
+                        </div>
+                        <div id="escala-datas-chips" class="anexos-lista mt-10"></div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="escala-manha-inicio">Turno Manhã — Início</label>
+                        <input type="time" id="escala-manha-inicio" class="input-premium" value="08:40">
+                    </div>
+                    <div class="form-group">
+                        <label for="escala-manha-fim">Turno Manhã — Fim</label>
+                        <input type="time" id="escala-manha-fim" class="input-premium" value="12:00">
+                    </div>
+                    <div class="form-group">
+                        <label for="escala-tarde-inicio">Turno Tarde — Início (opcional)</label>
+                        <input type="time" id="escala-tarde-inicio" class="input-premium" value="14:00">
+                    </div>
+                    <div class="form-group">
+                        <label for="escala-tarde-fim">Turno Tarde — Fim (opcional)</label>
+                        <input type="time" id="escala-tarde-fim" class="input-premium" value="17:20">
+                    </div>
+
+                    <div class="form-actions full-width">
+                        <button type="submit" class="btn-primary"><i class="fa-solid fa-floppy-disk"></i> Salvar Horários deste Profissional</button>
+                    </div>
                 </form>
             </div>
         </div>

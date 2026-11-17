@@ -881,6 +881,58 @@ select.input-premium { cursor: pointer; }
 .btn-full { width: 100%; }
 .mt-10 { margin-top: 10px; }
 
+.disponibilidade-tabs {
+    display: flex;
+    width: 100%;
+    margin-bottom: 20px;
+}
+.disponibilidade-tabs button { flex: 1; min-width: 0; }
+.disponibilidade-tabs button i { margin-right: 4px; }
+.disponibilidade-data {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+.disponibilidade-data > label,
+.disponibilidade-data > span { font-weight: 600; }
+.disponibilidade-data > input[type="date"] { max-width: 190px; }
+.disponibilidade-atalhos { display: flex; flex-wrap: wrap; gap: 8px; }
+.disponibilidade-grade {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+}
+.disponibilidade-slot {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 10px;
+    text-align: left;
+    background: var(--surface-color);
+    color: var(--text-main);
+}
+button.disponibilidade-slot { cursor: pointer; }
+button.disponibilidade-slot:hover { border-color: var(--primary-color); }
+.disponibilidade-slot strong,
+.disponibilidade-slot span { display: block; }
+.disponibilidade-slot span { margin-top: 3px; font-size: .82rem; }
+.disponibilidade-slot.ocupado,
+.disponibilidade-slot.bloqueado { background: #f1f5f9; color: var(--text-light); }
+.disponibilidade-dias { display: flex; flex-wrap: wrap; gap: 15px; margin-top: 8px; }
+.form-group-label { font-size: .9rem; font-weight: 600; color: var(--text-main); }
+.btn-remover-data-escala {
+    border: 0;
+    background: transparent;
+    color: #dc3545;
+    cursor: pointer;
+    padding: 0 2px;
+}
+#aba-ver-vagas[hidden],
+#form-escala-profissional[hidden],
+#escala-bloco-semanal[hidden],
+#escala-bloco-mensal[hidden] { display: none !important; }
+
 .agenda-controls {
     display: flex;
     gap: 12px;
@@ -3265,3 +3317,15 @@ table tbody tr:hover { background-color: #f6f9fc; }
     color: #fff;
     border-color: var(--primary-color);
 }
+
+/* ===== Agenda: horários fora da escala do profissional ===== */
+.appointment-slot.unavailable {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: repeating-linear-gradient(45deg, #f8fafc, #f8fafc 8px, #f1f5f9 8px, #f1f5f9 16px);
+    color: #cbd5e1;
+    cursor: not-allowed;
+}
+.prof-header .prof-fora-escala { display: block; margin-top: 4px; color: #b45309; font-weight: 600; }
+.aviso-escala { display: block; margin-top: 6px; color: #b45309; font-weight: 600; line-height: 1.35; }

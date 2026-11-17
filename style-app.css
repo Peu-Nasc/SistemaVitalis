@@ -490,7 +490,7 @@ select.input-premium { cursor: pointer; }
     display: none;
     justify-content: center;
     align-items: center;
-    z-index: 1000;
+    z-index: 2500;
     animation: fadeInModal 0.3s ease;
 }
 
@@ -3002,4 +3002,179 @@ table tbody tr:hover { background-color: #f6f9fc; }
     cursor: pointer;
     font-size: 0.95rem;
     opacity: 0.85;
+}
+
+/* =========================================================
+   AGENDA RECEPÇÃO 2.0: FLUXO DE CHEGADA E CARDS ORGANIZADOS
+   ========================================================= */
+.agenda-status-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.agenda-filter-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    background: #fff;
+    color: var(--text-main);
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.agenda-filter-pill:hover {
+    border-color: var(--primary-light);
+    background: #f8fbff;
+}
+
+.agenda-filter-pill.active {
+    background: var(--primary-color);
+    color: #fff;
+    border-color: var(--primary-color);
+}
+
+.agenda-filter-pill .pill-count {
+    background: rgba(15, 76, 117, 0.1);
+    color: var(--primary-color);
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 0.74rem;
+    font-weight: 700;
+}
+
+.agenda-filter-pill.active .pill-count {
+    background: rgba(255, 255, 255, 0.22);
+    color: #fff;
+}
+
+/* Novo Card de Consulta na Grade */
+.appointment-slot.occupied {
+    background: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    border-left: 4px solid #6c757d !important;
+    border-radius: 10px;
+    margin: 6px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    box-shadow: 0 2px 5px rgba(15, 23, 42, 0.04);
+}
+
+.appointment-slot.occupied[data-status="agendado"] { border-left-color: #64748b !important; }
+.appointment-slot.occupied[data-status="confirmado"] { border-left-color: #0284c7 !important; background: #f8fdff !important; }
+.appointment-slot.occupied[data-status="aguardando_atendimento"] { border-left-color: #f59e0b !important; background: #fffdf5 !important; }
+.appointment-slot.occupied[data-status="concluido"] { border-left-color: #16a34a !important; background: #f7fee7 !important; }
+
+.appt-card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+}
+
+.appt-status-tag {
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 999px;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+.appt-status-tag.agendado { background: #f1f5f9; color: #475569; }
+.appt-status-tag.confirmado { background: #e0f2fe; color: #0369a1; }
+.appt-status-tag.aguardando_atendimento { background: #fef3c7; color: #b45309; }
+.appt-status-tag.concluido { background: #dcfce7; color: #15803d; }
+
+.appt-sala-tag {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--text-light);
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    padding: 1px 6px;
+    border-radius: 6px;
+}
+
+.appt-card-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    padding-top: 6px;
+    border-top: 1px dashed #e2e8f0;
+}
+
+.btn-quick-step {
+    border: none;
+    border-radius: 6px;
+    padding: 4px 9px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: transform 0.1s ease, filter 0.15s ease;
+}
+.btn-quick-step:hover { filter: brightness(0.95); transform: translateY(-1px); }
+.btn-quick-step.step-confirmar { background: #e0f2fe; color: #0369a1; }
+.btn-quick-step.step-chegou { background: #fef3c7; color: #b45309; }
+.btn-quick-step.step-concluir { background: #dcfce7; color: #15803d; }
+
+.btn-quick-pay {
+    border: 1px solid #fde68a;
+    background: #fffbeb;
+    color: #b45309;
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+.btn-quick-pay:hover { background: #fef3c7; }
+
+.appt-paid-tag {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #15803d;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+
+/* Botões de Etapa dentro do Modal de Detalhes */
+.stepper-status-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin-top: 8px;
+}
+.btn-step-status {
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: #f8fafc;
+    color: var(--text-main);
+    font-weight: 600;
+    font-size: 0.82rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.15s ease;
+}
+.btn-step-status:hover { border-color: var(--primary-light); background: #f0f7ff; }
+.btn-step-status.active {
+    background: var(--primary-color);
+    color: #fff;
+    border-color: var(--primary-color);
 }

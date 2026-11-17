@@ -7,28 +7,21 @@ import { registrarAuditoria } from './auditoria.js';
 import { valorDoProcedimentoParaProfissional } from './procedimentos.js';
 
 let agendamentoIdParaAtualizar = null;
-
-// Quando o modal de pagamento é aberto a partir de uma notificação de
-// "pagamento pendente" (ver abrirModalPagamento), guardamos aqui o id
-// dessa notificação - assim que o pagamento é confirmado de verdade,
-// a notificação é resolvida junto, no mesmo passo (ver o submit de
-// #form-confirmar-agendamento, mais abaixo).
 let notificacaoIdEmResolucao = null;
-
-// ========================================================
-// NOVO: ALTERNADOR DE PERÍODO (Dia / Semana / Mês)
-// periodoAtual controla qual das 3 visões é renderizada por
-// atualizarAgenda(). O input #data-agenda continua sendo a
-// "data de referência": no dia, é o próprio dia; na semana, é
-// qualquer dia daquela semana; no mês, qualquer dia daquele mês.
-// ========================================================
 let periodoAtual = 'dia';
+let filtroStatusAtual = 'todos';
+let pagamentoAdicionalConfirmado = false;
 
 const NOMES_MES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 const NOMES_DIA_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
-// Evita problema de fuso horário do JS ao interpretar "YYYY-MM-DD" como
-// UTC (o que às vezes "voltava" um dia) - construímos a data em horário local.
+const META_STATUS = {
+    agendado: { rotulo: 'Agendado', icone: 'fa-regular fa-clock' },
+    confirmado: { rotulo: 'Confirmado', icone: 'fa-solid fa-check' },
+    aguardando_atendimento: { rotulo: 'Na Espera', icone: 'fa-solid fa-couch' },
+    concluido: { rotulo: 'Atendido', icone: 'fa-solid fa-flag-checkered' }
+};
+
 function parseDataLocal(isoDate) {
     const [ano, mes, dia] = isoDate.split('-').map(Number);
     return new Date(ano, mes - 1, dia);
@@ -38,14 +31,12 @@ function paraIsoDate(d) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-// Domingo da semana que contém a data de referência
 function obterDomingoDaSemana(d) {
     const domingo = new Date(d);
     domingo.setDate(domingo.getDate() - domingo.getDay());
     return domingo;
 }
 
-// Retorna o bloqueio (folga/indisponibilidade) que cobre esse profissional+data+horário, se existir
 function obterBloqueio(profId, data, hora) {
     return clinicaState.agenda.bloqueios.find(b => {
         if (String(b.profId) !== String(profId) || b.data !== data) return false;
@@ -54,8 +45,6 @@ function obterBloqueio(profId, data, hora) {
     });
 }
 
-// Monta o objeto do lançamento financeiro (sem gravar nada ainda) - separado
-// da gravação em si pra poder ser usado dentro da transação atômica abaixo.
 function montarDadosFinanceiroDoAgendamento(agendamento, formaPagamento, valorPago) {
     const valorBruto = parseFloat((valorPago ?? agendamento.valorAtendimento ?? 0).toString().replace(/\./g, '').replace(',', '.'));
     if (!valorBruto || valorBruto <= 0) return null;
@@ -88,28 +77,13 @@ function montarDadosFinanceiroDoAgendamento(agendamento, formaPagamento, valorPa
     };
 }
 
-// ========================================================
-// CONFIRMAÇÃO DE PAGAMENTO - GRAVAÇÃO ATÔMICA
-// A trava do modal (abrirModalPagamento) olha o estado que JÁ estava
-// carregado na tela - o que não protege contra duas abas, ou duas
-// pessoas em dois computadores, confirmando o pagamento da MESMA
-// consulta ao mesmo tempo (nenhuma das duas vê o aviso, porque nenhuma
-// tela sabe da ação da outra até recarregar). Por isso a decisão final -
-// "essa consulta já está paga ou não" - não pode depender só da memória
-// do navegador: usamos uma transação do Firestore, que lê o documento
-// direto do banco e só grava se ele ainda estiver do jeito esperado,
-// tudo em uma operação só e indivisível. Se outra sessão pagou um
-// segundo antes, a transação é abortada e ninguém consegue duplicar.
-// ========================================================
 async function confirmarPagamentoTransacional(idAgendamento, dadosAgendamento, dadosFinanceiro, permitirMesmoJaPago) {
     const refAgendamento = doc(db, "agendamentos", idAgendamento);
     const refFinanceiroNovo = doc(collection(db, "financeiro"));
 
     await runTransaction(db, async (transaction) => {
         const snap = await transaction.get(refAgendamento);
-        if (!snap.exists()) {
-            throw new Error('AGENDAMENTO_NAO_ENCONTRADO');
-        }
+        if (!snap.exists()) throw new Error('AGENDAMENTO_NAO_ENCONTRADO');
 
         const estadoAtualNoBanco = snap.data();
         if (estadoAtualNoBanco.statusPagamento === 'pago' && !permitirMesmoJaPago) {
@@ -121,12 +95,49 @@ async function confirmarPagamentoTransacional(idAgendamento, dadosAgendamento, d
     });
 }
 
-// Enquanto o modal estiver aberto por causa de uma consulta que JÁ estava
-// paga (usuário confirmou explicitamente que quer mesmo assim), guardamos
-// aqui pra: (1) o texto do botão/aviso do modal refletir que é um pagamento
-// adicional, e (2) o submit conseguir revalidar essa mesma condição sem
-// depender de o usuário não ter fechado/reaberto o modal no meio do caminho.
-let pagamentoAdicionalConfirmado = false;
+// Avança o status do paciente com 1 clique (sem misturar com cobrança forçada)
+async function alterarStatusConsultaRapido(idAgendamento, novoStatus) {
+    const agendamento = clinicaState.agenda.agendamentos.find(a => String(a.id) === String(idAgendamento));
+    if (!agendamento) return;
+
+    const valorConsulta = Number(agendamento.valorAtendimento || 0);
+    const jaEstaPaga = agendamento.statusPagamento === 'pago';
+    const proximoStatusPagamento = valorConsulta > 0 ? (jaEstaPaga ? 'pago' : 'pendente') : 'nao_aplica';
+
+    try {
+        await updateDoc(doc(db, "agendamentos", idAgendamento), {
+            status: novoStatus,
+            statusPagamento: proximoStatusPagamento
+        });
+
+        agendamento.status = novoStatus;
+        agendamento.statusPagamento = proximoStatusPagamento;
+
+        const mensagens = {
+            agendado: `Status de ${agendamento.pacNome} voltou para Agendado.`,
+            confirmado: `Presença de ${agendamento.pacNome} confirmada!`,
+            aguardando_atendimento: `Check-in feito! ${agendamento.pacNome} entrou na Fila de Atendimento do profissional.`,
+            concluido: `Atendimento de ${agendamento.pacNome} marcado como concluído!`
+        };
+        showToast(mensagens[novoStatus] || 'Status atualizado!', 'success');
+
+        if (novoStatus === 'concluido' && valorConsulta > 0 && !jaEstaPaga) {
+            await criarNotificacao({
+                tipo: 'pagamento_pendente',
+                titulo: 'Confirmar pagamento',
+                mensagem: `A consulta de ${agendamento.pacNome} (${agendamento.procedimentoNome || agendamento.tipo || 'Consulta'}) foi concluída e aguarda baixa no caixa.`,
+                pacienteId: agendamento.pacId,
+                pacienteNome: agendamento.pacNome,
+                agendamentoId: idAgendamento
+            });
+        }
+
+        atualizarAgenda();
+    } catch (error) {
+        console.error("Erro ao atualizar status rápido:", error);
+        showToast('Não foi possível atualizar o status da consulta.', 'error');
+    }
+}
 
 export async function abrirModalPagamento(idAgendamento, notificacaoId = null) {
     const modal = document.getElementById('modal-confirmar-agendamento');
@@ -135,17 +146,6 @@ export async function abrirModalPagamento(idAgendamento, notificacaoId = null) {
 
     if (!modal || !form || !agendamento) return;
 
-    // ========================================================
-    // CAMADA DE SEGURANÇA CONTRA PAGAMENTO DUPLICADO
-    // Esta é a única função do sistema que abre a tela de cobrança de
-    // uma consulta - então é aqui, e só aqui, que travamos o caso mais
-    // perigoso: reabrir a cobrança de uma consulta que JÁ está marcada
-    // como paga. Isso vale não importa de onde a chamada veio (troca de
-    // status, botão "Confirmar Pagamento" do modal de detalhe, ou uma
-    // notificação antiga de pagamento pendente) - se a consulta já está
-    // paga, avisamos com os dados do pagamento existente e só deixamos
-    // continuar com confirmação explícita da pessoa.
-    // ========================================================
     pagamentoAdicionalConfirmado = false;
 
     if (agendamento.statusPagamento === 'pago') {
@@ -156,7 +156,7 @@ export async function abrirModalPagamento(idAgendamento, notificacaoId = null) {
         const formaJaPaga = agendamento.observacaoConfirmacao?.formaPagamento || agendamento.pagamento || '';
 
         const continuar = await confirmarAcao(
-            `Esta consulta já está marcada como PAGA: ${valorJaPago}${formaJaPaga ? ' via ' + formaJaPaga : ''}, em ${dataPagamento}${agendamento.pagoPor ? ' (confirmado por ' + agendamento.pagoPor + ')' : ''}. Continuar aqui vai criar um NOVO lançamento no Livro Caixa, somado ao pagamento já existente - só prossiga se for de fato um valor adicional (ex: complemento, taxa extra).`,
+            `Esta consulta já está marcada como PAGA: ${valorJaPago}${formaJaPaga ? ' via ' + formaJaPaga : ''}, em ${dataPagamento}${agendamento.pagoPor ? ' (confirmado por ' + agendamento.pagoPor + ')' : ''}. Continuar aqui vai criar um NOVO lançamento no Livro Caixa.`,
             { titulo: 'Consulta já paga', textoConfirmar: 'Registrar pagamento adicional', perigoso: true }
         );
 
@@ -168,8 +168,6 @@ export async function abrirModalPagamento(idAgendamento, notificacaoId = null) {
     notificacaoIdEmResolucao = notificacaoId;
     form.reset();
 
-    // Resumo somente-leitura da consulta, pra quem está confirmando ver
-    // exatamente o que está sendo cobrado antes de digitar valor/forma.
     const profissional = clinicaState.profissionais.find(p => String(p.id) === String(agendamento.profId));
     const nomeAtendimento = agendamento.procedimentoNome || agendamento.tipo || 'Consulta';
     const dataFormatada = agendamento.data ? `${agendamento.data.split('-').reverse().join('/')} às ${agendamento.hora || ''}` : '-';
@@ -188,16 +186,13 @@ export async function abrirModalPagamento(idAgendamento, notificacaoId = null) {
 
     if (avisoDuplicado) avisoDuplicado.style.display = pagamentoAdicionalConfirmado ? 'flex' : 'none';
     if (avisoDuplicadoTexto && pagamentoAdicionalConfirmado) {
-        avisoDuplicadoTexto.textContent = 'Você está registrando um pagamento ADICIONAL para uma consulta que já constava como paga. Confira o valor com atenção antes de salvar.';
+        avisoDuplicadoTexto.textContent = 'Você está registrando um pagamento ADICIONAL para uma consulta que já constava como paga.';
     }
     if (modalPagamentoContent) modalPagamentoContent.classList.toggle('pagamento-modo-adicional', pagamentoAdicionalConfirmado);
     if (btnSubmit) {
         btnSubmit.innerHTML = pagamentoAdicionalConfirmado
             ? '<i class="fa-solid fa-triangle-exclamation"></i> Confirmar Pagamento Adicional'
             : '<i class="fa-solid fa-check"></i> Confirmar Pagamento';
-        // Toda vez que o modal reabre, a verificação final volta a ficar
-        // desmarcada e o botão desabilitado - obriga conferir de novo em
-        // cada confirmação, mesmo que a pessoa já tenha usado o modal antes.
         btnSubmit.disabled = true;
     }
     if (checkVerificacao) checkVerificacao.checked = false;
@@ -211,6 +206,7 @@ export async function abrirModalPagamento(idAgendamento, notificacaoId = null) {
     const selectPagamento = document.getElementById('pagamento-forma');
     if (selectPagamento) {
         selectPagamento.value = 'Pix';
+        selectPagamento.dispatchEvent(new Event('change'));
     }
 
     modal.classList.add('active');
@@ -221,14 +217,16 @@ function obterValorProcedimentoSelecionado() {
     const selectProcedimento = document.getElementById('agenda-procedimento');
     const profissionalId = document.getElementById('agenda-profissional')?.value;
 
-    if (tipoAtendimento !== 'procedimento_avulso' || !selectProcedimento || !profissionalId) {
-        return 0;
+    if (!selectProcedimento || !profissionalId) return 0;
+    const itemId = selectProcedimento.value;
+    if (!itemId) return 0;
+
+    if (tipoAtendimento === 'pacote') {
+        const pac = clinicaState.pacotes.find(p => String(p.id) === String(itemId));
+        return pac ? Number(pac.valorEspecie ?? pac.valorFechado ?? 0) : 0;
     }
 
-    const procedimentoId = selectProcedimento.value;
-    if (!procedimentoId) return 0;
-
-    return valorDoProcedimentoParaProfissional(procedimentoId, profissionalId);
+    return valorDoProcedimentoParaProfissional(itemId, profissionalId);
 }
 
 function atualizarVisualizacaoProcedimento() {
@@ -240,44 +238,111 @@ function atualizarVisualizacaoProcedimento() {
     if (!selectProcedimento || !campoValor || !grupoProcedimento) return;
 
     const isAvulso = tipoAtendimento === 'procedimento_avulso';
-    grupoProcedimento.style.display = isAvulso ? 'block' : 'none';
-    selectProcedimento.disabled = !isAvulso;
+    const isPacote = tipoAtendimento === 'pacote';
+    grupoProcedimento.style.display = (isAvulso || isPacote) ? 'block' : 'none';
+    selectProcedimento.disabled = !(isAvulso || isPacote);
 
-    if (!isAvulso) {
-        campoValor.value = formatCurrency(0);
-        return;
+    if (!selectProcedimento.value) {
+        if (isAvulso && clinicaState.procedimentos.length > 0) {
+            selectProcedimento.value = String(clinicaState.procedimentos[0].id);
+        } else if (isPacote && clinicaState.pacotes.length > 0) {
+            selectProcedimento.value = String(clinicaState.pacotes[0].id);
+        }
     }
 
-    const procedimentoId = selectProcedimento.value;
     const valor = obterValorProcedimentoSelecionado();
-    campoValor.value = formatCurrency(valor);
-
-    if (!procedimentoId && clinicaState.procedimentos.length > 0) {
-        const primeiro = clinicaState.procedimentos[0];
-        selectProcedimento.value = String(primeiro.id);
-        campoValor.value = formatCurrency(valorDoProcedimentoParaProfissional(primeiro.id, document.getElementById('agenda-profissional')?.value || ''));
-    }
+    campoValor.value = isPacote ? `${formatCurrency(valor)} (Pacote)` : formatCurrency(valor);
 }
 
 function popularSelectProcedimentos() {
     const selectProcedimento = document.getElementById('agenda-procedimento');
+    const tipoAtendimento = document.getElementById('agenda-tipo')?.value || 'procedimento_avulso';
+    const grupoProcedimento = document.getElementById('grupo-agenda-procedimento');
     if (!selectProcedimento) return;
 
     const profId = document.getElementById('agenda-profissional')?.value || '';
-    selectProcedimento.innerHTML = '<option value="">Selecione o procedimento...</option>' +
-        clinicaState.procedimentos.map(proc => {
-            const valor = valorDoProcedimentoParaProfissional(proc.id, profId);
-            return `<option value="${proc.id}">${escapeHTML(proc.nome)} - ${formatCurrency(valor)}</option>`;
+    if (tipoAtendimento === 'pacote') {
+        if (grupoProcedimento) grupoProcedimento.style.display = 'block';
+        selectProcedimento.disabled = false;
+        const pacotesDoProf = clinicaState.pacotes.filter(p => !p.profissionalPadraoId || String(p.profissionalPadraoId) === String(profId));
+        const listaPac = pacotesDoProf.length > 0 ? pacotesDoProf : clinicaState.pacotes;
+
+        selectProcedimento.innerHTML = '<option value="">Selecione o pacote...</option>' +
+            listaPac.map(pac => `<option value="${pac.id}">📦 ${escapeHTML(pac.nome)} (Espécie: ${formatCurrency(pac.valorEspecie ?? pac.valorFechado)} | Pix/Cartão: ${formatCurrency(pac.valorCartaoPix ?? pac.valorFechado)})</option>`).join('');
+        return;
+    }
+
+    const exclusivosDoProf = clinicaState.procedimentos.filter(p => String(p.profissionalPadraoId) === String(profId));
+    const gerais = clinicaState.procedimentos.filter(p => !p.profissionalPadraoId);
+    const listaFinal = exclusivosDoProf.length > 0 ? [...exclusivosDoProf, ...gerais] : clinicaState.procedimentos;
+
+    selectProcedimento.innerHTML = '<option value="">Selecione a consulta, exame ou procedimento...</option>' +
+        listaFinal.map(proc => {
+            const vEsp = valorDoProcedimentoParaProfissional(proc.id, profId, 'Dinheiro');
+            const vPix = valorDoProcedimentoParaProfissional(proc.id, profId, 'Pix');
+            const icone = proc.tipoItem === 'Exame' ? '🔬' : proc.tipoItem === 'Consulta' ? '🩺' : proc.tipoItem === 'Avaliação' ? '📋' : '💉';
+            return `<option value="${proc.id}">${icone} ${escapeHTML(proc.nome)} — Din: ${formatCurrency(vEsp)} | Pix/Cart: ${formatCurrency(vPix)}</option>`;
         }).join('');
 
-    if (clinicaState.procedimentos.length > 0) {
-        const valorPadrao = document.getElementById('agenda-tipo')?.value === 'procedimento_avulso' ? clinicaState.procedimentos[0].id : '';
-        if (valorPadrao) selectProcedimento.value = String(valorPadrao);
+    if (listaFinal.length > 0) {
+        selectProcedimento.value = String(listaFinal[0].id);
     }
 }
 
-export function verificarAlertasAgendamento() {
-    // Função silenciada: os alertas agora aparecem silenciosamente no Dashboard
+export function verificarAlertasAgendamento() {}
+
+// Renderiza a barra de resumo e filtros rápidos da Recepção no topo da Agenda
+function renderizarBarraResumoRecepcao(dataSelecionada) {
+    const secaoAgenda = document.getElementById('agenda');
+    const viewDia = document.getElementById('agenda-view-dia');
+    if (!secaoAgenda || !viewDia) return;
+
+    let barra = document.getElementById('agenda-status-bar');
+    if (!barra) {
+        barra = document.createElement('div');
+        barra.id = 'agenda-status-bar';
+        barra.className = 'agenda-status-bar';
+        viewDia.parentNode.insertBefore(barra, viewDia);
+
+        barra.addEventListener('click', (e) => {
+            const pill = e.target.closest('.agenda-filter-pill');
+            if (!pill) return;
+            filtroStatusAtual = pill.getAttribute('data-status-filter') || 'todos';
+            atualizarAgenda();
+        });
+    }
+
+    if (periodoAtual !== 'dia') {
+        barra.style.display = 'none';
+        return;
+    }
+    barra.style.display = 'flex';
+
+    const filtroProf = document.getElementById('filtro-profissional')?.value || 'todos';
+    const doDia = agendamentosPermitidos(filtroProf).filter(a => a.data === dataSelecionada);
+
+    const contagem = {
+        todos: doDia.length,
+        agendado: doDia.filter(a => (a.status || 'agendado') === 'agendado').length,
+        confirmado: doDia.filter(a => a.status === 'confirmado').length,
+        aguardando_atendimento: doDia.filter(a => a.status === 'aguardando_atendimento').length,
+        concluido: doDia.filter(a => a.status === 'concluido').length
+    };
+
+    const opcoes = [
+        { chave: 'todos', icone: 'fa-solid fa-layer-group', texto: 'Todos do Dia' },
+        { chave: 'agendado', icone: 'fa-regular fa-clock', texto: 'A Confirmar' },
+        { chave: 'confirmado', icone: 'fa-solid fa-check', texto: 'Confirmados' },
+        { chave: 'aguardando_atendimento', icone: 'fa-solid fa-user-clock', texto: 'Na Sala de Espera' },
+        { chave: 'concluido', icone: 'fa-solid fa-circle-check', texto: 'Concluídos' }
+    ];
+
+    barra.innerHTML = opcoes.map(op => `
+        <button type="button" class="agenda-filter-pill ${filtroStatusAtual === op.chave ? 'active' : ''}" data-status-filter="${op.chave}">
+            <i class="${op.icone}"></i> ${op.texto}
+            <span class="pill-count">${contagem[op.chave]}</span>
+        </button>
+    `).join('');
 }
 
 export function initAgenda() {
@@ -306,11 +371,7 @@ export function initAgenda() {
             atualizarVisualizacaoProcedimento();
         });
     }
-
-    if (selectProcedimento) {
-        selectProcedimento.addEventListener('change', atualizarVisualizacaoProcedimento);
-    }
-
+    if (selectProcedimento) selectProcedimento.addEventListener('change', atualizarVisualizacaoProcedimento);
     if (selectProfissional) {
         selectProfissional.addEventListener('change', () => {
             popularSelectProcedimentos();
@@ -318,9 +379,6 @@ export function initAgenda() {
         });
     }
 
-    // ==========================================
-    // BLOQUEIO DE HORÁRIO / FOLGA
-    // ==========================================
     const modalBloqueio = document.getElementById('modal-bloqueio');
     const selectTipoBloqueio = document.getElementById('bloqueio-tipo');
     const grupoHorarioEspecifico = document.getElementById('bloqueio-horario-especifico-group');
@@ -334,7 +392,6 @@ export function initAgenda() {
 
     document.getElementById('form-bloqueio').addEventListener('submit', async (e) => {
         e.preventDefault();
-
         const btnSalvar = e.target.querySelector('button[type="submit"]');
 
         await comEstadoDeCarregamento(btnSalvar, 'Bloqueando...', async () => {
@@ -350,7 +407,7 @@ export function initAgenda() {
             }
 
             const conflito = clinicaState.agenda.agendamentos.some(a => {
-                if (a.profId !== String(profId) || a.data !== data) return false;
+                if (a.profId !== String(profId) || a.data !== data || a.status === 'cancelado') return false;
                 if (tipo === 'dia_inteiro') return true;
                 return a.hora >= horaInicio && a.hora <= horaFim;
             });
@@ -383,7 +440,7 @@ export function initAgenda() {
                 await registrarAuditoria({
                     acao: 'Criação',
                     modulo: 'Agenda',
-                    descricao: `Horário bloqueado para ${profissional ? profissional.nome : profId} em ${data}${tipo === 'dia_inteiro' ? ' (dia inteiro)' : ` (${horaInicio} às ${horaFim})`}${motivo ? ' - ' + motivo : ''}`
+                    descricao: `Horário bloqueado para ${profissional ? profissional.nome : profId} em ${data}`
                 });
 
                 await carregarBloqueios();
@@ -396,7 +453,6 @@ export function initAgenda() {
 
     document.getElementById('form-agendamento').addEventListener('submit', async (e) => {
         e.preventDefault();
-        
         const btnSalvar = e.target.querySelector('button[type="submit"]');
 
         await comEstadoDeCarregamento(btnSalvar, 'Agendando...', async () => {
@@ -407,9 +463,21 @@ export function initAgenda() {
             const horaAgendamento = document.getElementById('agenda-hora').value;
             const tipoAtendimento = document.getElementById('agenda-tipo').value;
             const selectProcedimento = document.getElementById('agenda-procedimento');
-            const procedimentoId = tipoAtendimento === 'procedimento_avulso' ? (selectProcedimento ? selectProcedimento.value : '') : '';
-            const procedimento = clinicaState.procedimentos.find(p => String(p.id) === String(procedimentoId));
-            const valorAtendimento = tipoAtendimento === 'procedimento_avulso' ? obterValorProcedimentoSelecionado() : 0;
+            const itemSelecionadoId = selectProcedimento ? selectProcedimento.value : '';
+
+            const isPacote = tipoAtendimento === 'pacote';
+            const itemObj = isPacote
+                ? clinicaState.pacotes.find(p => String(p.id) === String(itemSelecionadoId))
+                : clinicaState.procedimentos.find(p => String(p.id) === String(itemSelecionadoId));
+
+            if (!itemSelecionadoId || !itemObj) {
+                showToast(isPacote ? 'Selecione um pacote válido.' : 'Selecione um procedimento válido.', 'error');
+                return;
+            }
+
+            const procedimentoId = itemSelecionadoId;
+            const procedimento = itemObj;
+            const valorAtendimento = obterValorProcedimentoSelecionado();
             const paciente = clinicaState.pacientes.find(p => String(p.id) === String(pacId));
 
             if (tipoAtendimento === 'procedimento_avulso' && (!procedimentoId || !procedimento)) {
@@ -422,7 +490,6 @@ export function initAgenda() {
                 return;
             }
 
-            // === NOVA TRAVA: IMPEDE O MESMO PACIENTE NO MESMO HORÁRIO ===
             const pacienteOcupado = clinicaState.agenda.agendamentos.find(a => 
                 String(a.pacId) === String(pacId) && 
                 a.data === dataAgendamento && 
@@ -447,12 +514,12 @@ export function initAgenda() {
             if (horarioOcupado) {
                 if (ehAdmin) {
                     const forcar = await confirmarAcao(
-                        'Este médico já tem um paciente agendado neste horário. Como Administrador, você pode forçar um segundo agendamento no mesmo horário mesmo assim. Deseja continuar?',
+                        'Este profissional já tem um paciente agendado neste horário. Deseja agendar mesmo assim?',
                         { titulo: 'Horário já ocupado', textoConfirmar: 'Agendar mesmo assim', perigoso: true }
                     );
                     if (!forcar) return;
                 } else {
-                    showToast('Atenção: Este médico já possui um paciente agendado neste horário!', 'error');
+                    showToast('Atenção: Este profissional já possui um paciente agendado neste horário!', 'error');
                     return; 
                 }
             }
@@ -467,7 +534,7 @@ export function initAgenda() {
             if (salaOcupada) {
                 if (ehAdmin) {
                     const forcar = await confirmarAcao(
-                        `A Sala ${sala} já está ocupada por outro profissional nesse horário. Como Administrador, você pode forçar esse agendamento mesmo assim. Deseja continuar?`,
+                        `A Sala ${sala} já está ocupada nesse horário. Deseja forçar esse agendamento?`,
                         { titulo: 'Sala já ocupada', textoConfirmar: 'Agendar mesmo assim', perigoso: true }
                     );
                     if (!forcar) return;
@@ -481,12 +548,12 @@ export function initAgenda() {
             if (bloqueio) {
                 if (ehAdmin) {
                     const forcar = await confirmarAcao(
-                        'Este horário está bloqueado (folga/indisponibilidade) para este profissional. Como Administrador, você pode agendar mesmo assim. Deseja continuar?',
+                        'Este horário está bloqueado para este profissional. Deseja agendar mesmo assim?',
                         { titulo: 'Horário bloqueado', textoConfirmar: 'Agendar mesmo assim', perigoso: true }
                     );
                     if (!forcar) return;
                 } else {
-                    showToast('Este horário está bloqueado (folga/indisponibilidade) para este profissional.', 'error');
+                    showToast('Este horário está bloqueado para este profissional.', 'error');
                     return;
                 }
             }
@@ -512,11 +579,6 @@ export function initAgenda() {
                 e.target.reset();
                 showToast('Consulta agendada com sucesso!', 'success');
 
-                // AUTO-RESOLUÇÃO: se esse paciente tinha um "Retorno Pendente"
-                // ou "Encaminhamento" esperando agendamento, a ação que a
-                // notificação pedia acabou de acontecer agora - resolve
-                // sozinho, sem precisar que alguém volte em Notificações pra
-                // marcar manualmente.
                 const pendenciasResolvidasAoAgendar = clinicaState.notificacoes.filter(n =>
                     n.status === 'pendente' &&
                     String(n.pacienteId) === String(pacId) &&
@@ -558,14 +620,28 @@ export function initAgenda() {
     document.getElementById('btn-close-confirmar-agendamento').addEventListener('click', fecharModaisDeStatus);
     document.getElementById('btn-close-cancelar-agendamento').addEventListener('click', fecharModaisDeStatus);
 
-    // Trava de verificação final do pagamento: o botão de confirmar só liga
-    // quando a pessoa marca que conferiu valor/forma (ver abrirModalPagamento,
-    // que sempre reseta esse checkbox ao reabrir o modal).
     const checkVerificacaoPagamento = document.getElementById('pagamento-verificacao-confirmada');
     if (checkVerificacaoPagamento) {
         checkVerificacaoPagamento.addEventListener('change', (e) => {
             const btnSubmit = document.getElementById('btn-confirmar-pagamento-submit');
             if (btnSubmit) btnSubmit.disabled = !e.target.checked;
+        });
+    }
+
+    // Atualiza o valor entre Espécie e Cartão/Pix ao trocar a forma de pagamento.
+    const selectFormaPagamento = document.getElementById('pagamento-forma');
+    if (selectFormaPagamento) {
+        selectFormaPagamento.addEventListener('change', () => {
+            if (!agendamentoIdParaAtualizar) return;
+            const ag = clinicaState.agenda.agendamentos.find(a => String(a.id) === String(agendamentoIdParaAtualizar));
+            if (!ag || !ag.procedimentoId) return;
+            const novoValor = valorDoProcedimentoParaProfissional(ag.procedimentoId, ag.profId, selectFormaPagamento.value);
+            if (novoValor > 0) {
+                const inputValor = document.getElementById('pagamento-valor');
+                if (inputValor) {
+                    inputValor.value = novoValor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                }
+            }
         });
     }
 
@@ -578,7 +654,7 @@ export function initAgenda() {
         const agendamento = clinicaState.agenda.agendamentos.find(a => String(a.id) === String(idAgendamento));
 
         if (!agendamento) {
-            showToast('Agendamento não localizado. Recarregue a página e tente novamente.', 'error');
+            showToast('Agendamento não localizado.', 'error');
             return;
         }
 
@@ -586,13 +662,8 @@ export function initAgenda() {
         const valorPago = parseFloat(valorTexto);
         const formaPagamento = document.getElementById('pagamento-forma').value;
 
-        if (!formaPagamento) {
-            showToast('Selecione a forma de pagamento.', 'error');
-            return;
-        }
-
-        if (!valorPago || valorPago <= 0) {
-            showToast('Informe um valor válido para o pagamento.', 'error');
+        if (!formaPagamento || !valorPago || valorPago <= 0) {
+            showToast('Informe a forma de pagamento e um valor válido.', 'error');
             return;
         }
 
@@ -602,19 +673,18 @@ export function initAgenda() {
             return;
         }
 
-        // Revalidação final, bem em cima do clique em salvar: se a consulta já
-        // consta como paga NESTE MOMENTO e a pessoa não passou pela confirmação
-        // explícita de "pagamento adicional" (ver abrirModalPagamento), barra
-        // aqui também - cobre o caso raro de o modal ter ficado aberto enquanto
-        // outra aba/usuário já registrou o pagamento dessa mesma consulta.
         if (agendamento.statusPagamento === 'pago' && !pagamentoAdicionalConfirmado) {
-            showToast('Esta consulta já foi paga por outra ação enquanto o modal estava aberto. Feche e confira antes de continuar.', 'error');
+            showToast('Esta consulta já foi paga.', 'error');
             return;
         }
 
         await comEstadoDeCarregamento(btnSalvar, 'Confirmando...', async () => {
             try {
-                const statusFinal = agendamento.status === 'concluido' ? 'concluido' : 'confirmado';
+                const chegouMarcado = document.getElementById('confirmacao-chegou')?.checked;
+                let statusFinal = agendamento.status || 'agendado';
+                if (statusFinal === 'agendado') statusFinal = 'confirmado';
+                if (chegouMarcado && statusFinal !== 'concluido') statusFinal = 'aguardando_atendimento';
+
                 const updateData = {
                     status: statusFinal,
                     statusPagamento: 'pago',
@@ -624,7 +694,7 @@ export function initAgenda() {
                     observacaoConfirmacao: {
                         whatsapp: document.getElementById('confirmacao-whatsapp').checked,
                         pagamento: true,
-                        chegou: document.getElementById('confirmacao-chegou').checked,
+                        chegou: chegouMarcado,
                         observacoes: document.getElementById('confirmacao-observacoes').value,
                         formaPagamento,
                         valorPago
@@ -637,18 +707,6 @@ export function initAgenda() {
                     status: statusFinal
                 }, formaPagamento, valorPago);
 
-                if (!dadosFinanceiro) {
-                    showToast('Informe um valor válido para o pagamento.', 'error');
-                    return;
-                }
-
-                // Grava tudo numa transação única do Firestore: ela lê o
-                // agendamento direto do banco (não da memória do navegador) e só
-                // efetiva a escrita se ele ainda não estiver pago - ou se a
-                // pessoa já confirmou explicitamente que quer um pagamento
-                // adicional (pagamentoAdicionalConfirmado). Isso fecha a brecha
-                // de duas abas/duas pessoas confirmando ao mesmo tempo: quem
-                // chega primeiro grava, quem chega depois é barrado na hora.
                 await confirmarPagamentoTransacional(idAgendamento, updateData, dadosFinanceiro, pagamentoAdicionalConfirmado);
 
                 await registrarAuditoria({
@@ -667,10 +725,6 @@ export function initAgenda() {
 
                 showToast('Pagamento confirmado e lançado no caixa!', 'success');
 
-                // Se esse pagamento foi aberto a partir de uma notificação
-                // (Central de Notificações > Resolver), ela é encerrada
-                // agora - o pagamento real já foi registrado, não faz
-                // sentido o aviso continuar pendente na lista.
                 if (notificacaoIdEmResolucao) {
                     try {
                         await updateDoc(doc(db, "notificacoes", notificacaoIdEmResolucao), {
@@ -691,15 +745,8 @@ export function initAgenda() {
                 atualizarAgenda(); 
             } catch (error) {
                 if (error.message === 'JA_PAGO_NO_BANCO') {
-                    // A transação recusou a gravação porque, no banco (não na
-                    // tela), essa consulta já constava paga - normalmente sinal
-                    // de que outra aba/pessoa acabou de confirmar o mesmo
-                    // pagamento segundos antes. Não deixamos duplicar.
-                    console.warn("Pagamento bloqueado: consulta já estava paga no banco de dados.");
-                    showToast('Esta consulta já foi paga (provavelmente em outra aba/computador). Feche este modal, atualize a página e confira o Livro Caixa antes de tentar de novo.', 'error');
+                    showToast('Esta consulta já foi paga em outra sessão.', 'error');
                     modalConfirmarAgendamento.classList.remove('active');
-                    agendamentoIdParaAtualizar = null;
-                    pagamentoAdicionalConfirmado = false;
                     await carregarAgendamentos();
                     return;
                 }
@@ -744,21 +791,11 @@ export function initAgenda() {
                 e.stopPropagation();
                 if (await confirmarAcao('Deseja remover este bloqueio e liberar o horário?', { titulo: 'Remover bloqueio', textoConfirmar: 'Remover', perigoso: false })) {
                     const idBloqueio = btnRemoverBloqueio.getAttribute('data-id');
-                    const bloqueioRemovido = clinicaState.agenda.bloqueios.find(b => String(b.id) === String(idBloqueio));
                     try {
                         await deleteDoc(doc(db, "bloqueios_agenda", idBloqueio));
                         showToast('Bloqueio removido.', 'success');
-                        if (bloqueioRemovido) {
-                            const profissional = clinicaState.profissionais.find(p => String(p.id) === String(bloqueioRemovido.profId));
-                            await registrarAuditoria({
-                                acao: 'Exclusão',
-                                modulo: 'Agenda',
-                                descricao: `Bloqueio removido: ${profissional ? profissional.nome : bloqueioRemovido.profId} em ${bloqueioRemovido.data}`
-                            });
-                        }
                         await carregarBloqueios();
                     } catch (error) {
-                        console.error("Erro ao remover bloqueio: ", error);
                         showToast('Erro ao remover bloqueio.', 'error');
                     }
                 }
@@ -766,12 +803,6 @@ export function initAgenda() {
         });
     }
 
-    // ==========================================
-    // MODAL DE DETALHE DO AGENDAMENTO (aberto ao clicar num card
-    // ocupado - ver abrirModalDetalheAgendamento). Reúne aqui a troca
-    // de status, a confirmação de pagamento e o cancelamento, que
-    // antes viviam soltos dentro do card na grade.
-    // ==========================================
     const modalDetalhe = document.getElementById('modal-detalhe-agendamento');
     const selectStatusDetalhe = document.getElementById('detalhe-agendamento-status');
     const btnPagarDetalhe = document.getElementById('btn-confirmar-pagamento-detalhe');
@@ -789,16 +820,9 @@ export function initAgenda() {
         btnPagarDetalhe.addEventListener('click', () => {
             if (!agendamentoIdParaAtualizar) return;
             modalDetalhe.classList.remove('active');
-
-            // Se já existe uma notificação de "pagamento pendente" aberta
-            // pra esse agendamento (criada quando a consulta foi marcada
-            // como Concluído), vincula ela aqui também - sem isso, pagar
-            // por este botão deixaria aquele aviso órfão, pendente pra
-            // sempre na Central de Notificações.
             const notifExistente = clinicaState.notificacoes.find(n =>
                 n.tipo === 'pagamento_pendente' && n.status === 'pendente' && String(n.agendamentoId) === String(agendamentoIdParaAtualizar)
             );
-
             abrirModalPagamento(agendamentoIdParaAtualizar, notifExistente?.id || null);
         });
     }
@@ -812,53 +836,12 @@ export function initAgenda() {
         });
     }
 
+    // Troca de status dentro do modal de detalhe: agora muda a etapa de presença sem forçar o modal de pagamento
     if (selectStatusDetalhe) {
         selectStatusDetalhe.addEventListener('change', async (e) => {
             if (!agendamentoIdParaAtualizar) return;
             const idAgendamento = agendamentoIdParaAtualizar;
             const novoStatus = e.target.value;
-
-            if (novoStatus === 'confirmado') {
-                const agendamento = clinicaState.agenda.agendamentos.find(a => String(a.id) === String(idAgendamento));
-                const temValor = agendamento && Number(agendamento.valorAtendimento || 0) > 0;
-                const jaEstaPaga = agendamento?.statusPagamento === 'pago';
-
-                // Só força pendência + tela de cobrança se a consulta ainda não
-                // tiver pagamento registrado. Antes, reselecionar "Confirmado"
-                // numa consulta que já estava paga voltava o statusPagamento pra
-                // "pendente" e reabria o modal de cobrança sem checar nada -
-                // era esse o caminho que deixava lançar o mesmo pagamento 2x no
-                // caixa (a trava de fato agora mora em abrirModalPagamento, mas
-                // aqui evitamos nem chegar a mexer no statusPagamento à toa).
-                if (temValor && !jaEstaPaga) {
-                    await updateDoc(doc(db, "agendamentos", idAgendamento), { statusPagamento: 'pendente' });
-                    modalDetalhe.classList.remove('active');
-                    abrirModalPagamento(idAgendamento);
-                    return;
-                }
-
-                if (temValor && jaEstaPaga) {
-                    // Já paga: só confirma o status da consulta, sem tocar no
-                    // pagamento nem reabrir a cobrança.
-                    try {
-                        await updateDoc(doc(db, "agendamentos", idAgendamento), { status: 'confirmado' });
-                        const idxPago = clinicaState.agenda.agendamentos.findIndex(a => String(a.id) === String(idAgendamento));
-                        if (idxPago >= 0) clinicaState.agenda.agendamentos[idxPago].status = 'confirmado';
-                        showToast('Consulta confirmada (o pagamento já estava registrado).', 'success');
-                    } catch (error) {
-                        console.error("Erro ao confirmar consulta: ", error);
-                        showToast('Erro ao confirmar consulta.', 'error');
-                    }
-                    modalDetalhe.classList.remove('active');
-                    atualizarAgenda();
-                    return;
-                }
-
-                document.getElementById('form-confirmar-agendamento').reset();
-                modalDetalhe.classList.remove('active');
-                modalConfirmarAgendamento.classList.add('active');
-                return;
-            }
 
             if (novoStatus === 'cancelado') {
                 document.getElementById('form-cancelar-agendamento').reset();
@@ -867,96 +850,23 @@ export function initAgenda() {
                 return;
             }
 
-            try {
-                const agendamentoAtual = clinicaState.agenda.agendamentos.find(a => String(a.id) === String(idAgendamento));
-                const valorConsulta = Number(agendamentoAtual?.valorAtendimento || 0);
-                const jaEstaPagaAntesDaTroca = agendamentoAtual?.statusPagamento === 'pago';
-
-                // Só força pendência (e, mais abaixo, reabre a tela de cobrança)
-                // se a consulta AINDA não tiver pagamento registrado. Sem esse
-                // check, marcar como "Concluído" uma consulta que já estava
-                // paga voltava o statusPagamento pra "pendente" e reabria o
-                // modal de pagamento sem nenhum aviso de duplicidade - essa
-                // era a brecha que permitia lançar o mesmo pagamento 2x no
-                // caixa (o mesmo cuidado já existe no branch de "Confirmado",
-                // mais abaixo).
-                const proximoStatusPagamento = novoStatus === 'concluido' && valorConsulta > 0 && !jaEstaPagaAntesDaTroca
-                    ? 'pendente'
-                    : agendamentoAtual?.statusPagamento || 'nao_aplica';
-
-                await updateDoc(doc(db, "agendamentos", idAgendamento), {
-                    status: novoStatus,
-                    statusPagamento: valorConsulta > 0 ? proximoStatusPagamento : 'nao_aplica'
-                });
-                showToast('Status atualizado!', 'success');
-
-                const idxAg = clinicaState.agenda.agendamentos.findIndex(a => String(a.id) === String(idAgendamento));
-                if (idxAg >= 0) {
-                    clinicaState.agenda.agendamentos[idxAg] = {
-                        ...clinicaState.agenda.agendamentos[idxAg],
-                        status: novoStatus,
-                        statusPagamento: valorConsulta > 0 ? proximoStatusPagamento : 'nao_aplica'
-                    };
-                }
-
-                if (novoStatus === 'concluido' && !jaEstaPagaAntesDaTroca) {
-                    const agendamentoConcluido = clinicaState.agenda.agendamentos.find(a => String(a.id) === String(idAgendamento));
-                    if (agendamentoConcluido && Number(agendamentoConcluido.valorAtendimento || 0) > 0) {
-                        modalDetalhe.classList.remove('active');
-                        const notif = await criarNotificacao({
-                            tipo: 'pagamento_pendente',
-                            titulo: 'Confirmar pagamento',
-                            mensagem: `A consulta de ${agendamentoConcluido.pacNome} (${agendamentoConcluido.procedimentoNome || agendamentoConcluido.tipo || 'Consulta'}) foi concluída.`,
-                            pacienteId: agendamentoConcluido.pacId,
-                            pacienteNome: agendamentoConcluido.pacNome,
-                            agendamentoId: idAgendamento
-                        });
-                        // abrirModalPagamento já deixou agendamentoIdParaAtualizar
-                        // apontando pra ESTE agendamento - não pode ser zerado
-                        // aqui embaixo, senão o botão "Confirmar Pagamento" do
-                        // modal que acabou de abrir para de funcionar (é
-                        // exatamente o bug que travava a confirmação).
-                        abrirModalPagamento(idAgendamento, notif?.id || null);
-                        atualizarAgenda();
-                        return;
-                    }
-                    modalDetalhe.classList.remove('active');
-                } else {
-                    modalDetalhe.classList.remove('active');
-                }
-
-                agendamentoIdParaAtualizar = null;
-                atualizarAgenda();
-            } catch (error) {
-                console.error("Erro ao atualizar status: ", error);
-                showToast('Erro ao atualizar.', 'error');
-            }
+            modalDetalhe.classList.remove('active');
+            await alterarStatusConsultaRapido(idAgendamento, novoStatus);
         });
     }
 
     const selectVisao = document.getElementById('agenda-visao');
-    if (selectVisao) {
-        selectVisao.addEventListener('change', atualizarAgenda);
-    }
+    if (selectVisao) selectVisao.addEventListener('change', atualizarAgenda);
 
-    // ==========================================
-    // NOVO: ALTERNADOR DE PERÍODO E NAVEGAÇÃO DE DATA
-    // ==========================================
     const toggle = document.getElementById('agenda-periodo-toggle');
     if (toggle) {
         toggle.addEventListener('click', (e) => {
             const btn = e.target.closest('button[data-periodo]');
             if (!btn) return;
-
             periodoAtual = btn.getAttribute('data-periodo');
             toggle.querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
-
-            // A visão "Por Salas / Profissionais" e o filtro de profissional
-            // só fazem sentido na visão de Dia (na semana/mês eles ficam
-            // ocultos pra não sobrecarregar os controles).
             const selVisao = document.getElementById('agenda-visao');
             if (selVisao) selVisao.style.display = periodoAtual === 'dia' ? '' : 'none';
-
             atualizarAgenda();
         });
     }
@@ -970,19 +880,13 @@ export function initAgenda() {
     document.getElementById('btn-agenda-proximo')?.addEventListener('click', () => navegarData(1));
 }
 
-// Move a data de referência pra frente/trás de acordo com o período
-// ativo: 1 dia, 1 semana ou 1 mês por clique.
 function navegarData(direcao) {
     const inputDataAgenda = document.getElementById('data-agenda');
     const dataAtual = parseDataLocal(inputDataAgenda.value || new Date().toISOString().split('T')[0]);
 
-    if (periodoAtual === 'dia') {
-        dataAtual.setDate(dataAtual.getDate() + direcao);
-    } else if (periodoAtual === 'semana') {
-        dataAtual.setDate(dataAtual.getDate() + (direcao * 7));
-    } else {
-        dataAtual.setMonth(dataAtual.getMonth() + direcao);
-    }
+    if (periodoAtual === 'dia') dataAtual.setDate(dataAtual.getDate() + direcao);
+    else if (periodoAtual === 'semana') dataAtual.setDate(dataAtual.getDate() + (direcao * 7));
+    else dataAtual.setMonth(dataAtual.getMonth() + direcao);
 
     inputDataAgenda.value = paraIsoDate(dataAtual);
     atualizarAgenda();
@@ -1010,19 +914,12 @@ export function abrirModalAgendamento(hora = '', profId = '', data = '') {
         selProf.style.backgroundColor = '';
     }
     
-    if(data) document.getElementById('agenda-data').value = data;
-    else document.getElementById('agenda-data').value = inputDataAgenda.value;
-    
-    const inputHora = document.getElementById('agenda-hora');
-    if(hora) inputHora.value = hora; 
-    else inputHora.value = "08:00"; 
-    
-    if(profId) selProf.value = profId;
+    document.getElementById('agenda-data').value = data || inputDataAgenda.value;
+    document.getElementById('agenda-hora').value = hora || "08:00"; 
+    if (profId) selProf.value = profId;
 
     const tipoAtendimento = document.getElementById('agenda-tipo');
-    if (tipoAtendimento) {
-        tipoAtendimento.value = 'procedimento_avulso';
-    }
+    if (tipoAtendimento) tipoAtendimento.value = 'procedimento_avulso';
 
     popularSelectProcedimentos();
     document.getElementById('agenda-sala').value = '';
@@ -1085,7 +982,6 @@ export function atualizarAgenda() {
     const filtroProfissional = document.getElementById('filtro-profissional');
     const selectVisao = document.getElementById('agenda-visao');
 
-    // === TRAVA DO DOUTOR: COLUNAS/FILTRO DA AGENDA (vale pra dia/semana/mês) ===
     let profsPermitidos = clinicaState.profissionais;
     let mostrarTodos = true;
 
@@ -1103,9 +999,6 @@ export function atualizarAgenda() {
     filtroProfissional.innerHTML = opcoesFiltro;
     if (mostrarTodos && valorAnterior) filtroProfissional.value = valorAnterior;
 
-    // ==========================================
-    // NOVO: ALTERNA QUAL VISÃO (Dia / Semana / Mês) FICA VISÍVEL
-    // ==========================================
     const viewDia = document.getElementById('agenda-view-dia');
     const viewSemana = document.getElementById('agenda-view-semana');
     const viewMes = document.getElementById('agenda-view-mes');
@@ -1114,29 +1007,22 @@ export function atualizarAgenda() {
     if (viewSemana) viewSemana.style.display = periodoAtual === 'semana' ? '' : 'none';
     if (viewMes) viewMes.style.display = periodoAtual === 'mes' ? '' : 'none';
 
-    // O select "Por Profissionais / Por Salas" só faz sentido na visão Dia
     if (selectVisao && clinicaState.sessao.perfil !== 'Doutor(a)') {
         selectVisao.style.display = periodoAtual === 'dia' ? '' : 'none';
     }
 
     atualizarRotuloPeriodo(dataSelecionada);
+    renderizarBarraResumoRecepcao(dataSelecionada);
 
     if (periodoAtual === 'semana' || periodoAtual === 'mes') {
-        // Nas visões de Semana/Mês o filtro de profissional continua útil
-        // (a visão "Por Salas" é que não se aplica aqui, então some).
         filtroProfissional.style.display = '';
-
         if (periodoAtual === 'semana') renderizarVisaoSemana(dataSelecionada, filtroProfissional.value);
         else renderizarVisaoMes(dataSelecionada, filtroProfissional.value);
         return;
     }
 
-    // ==========================================
-    // A PARTIR DAQUI: VISÃO DIA (grade por hora, já existente)
-    // ==========================================
     const visaoAtual = selectVisao ? selectVisao.value : 'profissionais';
 
-    // === NOVO: HORÁRIOS DINÂMICOS ===
     const baseTimes = ['08:00', '09:00', '10:00', '11:00', '13:00', '14:00', '15:00', '16:00', '17:00'];
     const timesNoDia = new Set(baseTimes);
 
@@ -1144,9 +1030,7 @@ export function atualizarAgenda() {
         if (a.data === dataSelecionada) timesNoDia.add(a.hora);
     });
     clinicaState.agenda.bloqueios.forEach(b => {
-        if (b.data === dataSelecionada && b.tipo === 'horario') {
-            timesNoDia.add(b.horaInicio);
-        }
+        if (b.data === dataSelecionada && b.tipo === 'horario') timesNoDia.add(b.horaInicio);
     });
 
     const appointmentTimes = Array.from(timesNoDia).sort();
@@ -1154,20 +1038,13 @@ export function atualizarAgenda() {
     colHorarios.innerHTML = `<div class="time-slot-header">Horário</div>` +
         appointmentTimes.map(h => `<div class="time-slot">${h}</div>`).join('');
 
-    if (visaoAtual === 'salas') {
-        filtroProfissional.style.display = 'none';
-    } else {
-        filtroProfissional.style.display = '';
-    }
-
+    filtroProfissional.style.display = visaoAtual === 'salas' ? 'none' : '';
     container.innerHTML = '';
+
+    const bateFiltroStatus = (ag) => filtroStatusAtual === 'todos' || (ag.status || 'agendado') === filtroStatusAtual;
     
-    // ==========================================
-    // RENDERIZAÇÃO POR SALAS FÍSICAS
-    // ==========================================
     if (visaoAtual === 'salas' && clinicaState.sessao.perfil !== 'Doutor(a)') {
         const salasFisicas = ['1', '2', '3'];
-        
         salasFisicas.forEach(sala => {
             const coluna = document.createElement('div');
             coluna.className = 'professional-column';
@@ -1175,7 +1052,7 @@ export function atualizarAgenda() {
             
             appointmentTimes.forEach(hora => {
                 const agendamento = clinicaState.agenda.agendamentos.find(a => 
-                    String(a.sala) === sala && a.data === dataSelecionada && a.hora === hora && a.status !== 'cancelado'
+                    String(a.sala) === sala && a.data === dataSelecionada && a.hora === hora && a.status !== 'cancelado' && bateFiltroStatus(a)
                 );
                 
                 const slot = document.createElement('div');
@@ -1199,9 +1076,6 @@ export function atualizarAgenda() {
         return;
     }
 
-    // ==========================================
-    // RENDERIZAÇÃO POR PROFISSIONAIS (Padrão)
-    // ==========================================
     let filtroAtual = filtroProfissional.value;
     const profsParaExibir = filtroAtual === 'todos' 
         ? profsPermitidos 
@@ -1225,7 +1099,7 @@ export function atualizarAgenda() {
         
         appointmentTimes.forEach(hora => {
             const agendamento = clinicaState.agenda.agendamentos.find(a => 
-                a.profId == prof.id && a.data === dataSelecionada && a.hora === hora && a.status !== 'cancelado'
+                a.profId == prof.id && a.data === dataSelecionada && a.hora === hora && a.status !== 'cancelado' && bateFiltroStatus(a)
             );
             
             const slot = document.createElement('div');
@@ -1254,11 +1128,9 @@ export function atualizarAgenda() {
     });
 }
 
-// Atualiza o texto ao lado da navegação (< Hoje >) de acordo com o período ativo
 function atualizarRotuloPeriodo(dataSelecionadaIso) {
     const label = document.getElementById('agenda-periodo-label');
     if (!label || !dataSelecionadaIso) return;
-
     const data = parseDataLocal(dataSelecionadaIso);
 
     if (periodoAtual === 'dia') {
@@ -1267,7 +1139,6 @@ function atualizarRotuloPeriodo(dataSelecionadaIso) {
         const domingo = obterDomingoDaSemana(data);
         const sabado = new Date(domingo);
         sabado.setDate(sabado.getDate() + 6);
-
         const mesmoMes = domingo.getMonth() === sabado.getMonth();
         const inicio = domingo.toLocaleDateString('pt-BR', { day: '2-digit', month: mesmoMes ? undefined : 'short' });
         const fim = sabado.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -1277,9 +1148,6 @@ function atualizarRotuloPeriodo(dataSelecionadaIso) {
     }
 }
 
-// Retorna os agendamentos (não cancelados) que o perfil logado pode ver,
-// já aplicando a trava do Doutor(a) (só os próprios) e o filtro de
-// profissional escolhido no select - usado pelas visões de Semana e Mês.
 function agendamentosPermitidos(filtroProfId) {
     let profsPermitidos = clinicaState.profissionais;
     if (clinicaState.sessao.perfil === 'Doutor(a)') {
@@ -1295,13 +1163,6 @@ function agendamentosPermitidos(filtroProfId) {
     });
 }
 
-// ==========================================
-// VISÃO SEMANA: 7 colunas (Dom a Sáb), cada uma com os agendamentos
-// daquele dia empilhados em ordem de horário. Não reabre a grade de
-// horário fixo (isso é papel da visão Dia) - aqui o foco é dar uma
-// visão rápida da semana inteira sem médico/recepção precisar clicar
-// dia a dia.
-// ==========================================
 function renderizarVisaoSemana(dataSelecionadaIso, filtroProfId) {
     const container = document.getElementById('agenda-view-semana');
     if (!container) return;
@@ -1309,7 +1170,6 @@ function renderizarVisaoSemana(dataSelecionadaIso, filtroProfId) {
     const dataRef = parseDataLocal(dataSelecionadaIso);
     const domingo = obterDomingoDaSemana(dataRef);
     const hojeIso = paraIsoDate(new Date());
-
     const agendamentosDaSemana = agendamentosPermitidos(filtroProfId);
 
     container.innerHTML = '';
@@ -1355,12 +1215,6 @@ function renderizarVisaoSemana(dataSelecionadaIso, filtroProfId) {
     }
 }
 
-// ==========================================
-// VISÃO MÊS: calendário mensal clássico. Cada dia mostra até 3
-// agendamentos (mini-etiquetas) e um "+N" se houver mais - clicar no
-// dia leva direto pra visão Dia daquela data, que é onde de fato dá
-// pra agir sobre os agendamentos (confirmar, cancelar etc.).
-// ==========================================
 function renderizarVisaoMes(dataSelecionadaIso, filtroProfId) {
     const grid = document.getElementById('agenda-month-grid');
     if (!grid) return;
@@ -1372,13 +1226,12 @@ function renderizarVisaoMes(dataSelecionadaIso, filtroProfId) {
 
     const primeiroDiaDoMes = new Date(ano, mes, 1);
     const inicioGrade = obterDomingoDaSemana(primeiroDiaDoMes);
-
     const agendamentosDoPeriodo = agendamentosPermitidos(filtroProfId);
     const MAX_VISIVEIS = 3;
 
     grid.innerHTML = '';
 
-    for (let i = 0; i < 42; i++) { // 6 semanas fixas, cobre qualquer mês
+    for (let i = 0; i < 42; i++) {
         const diaAtual = new Date(inicioGrade);
         diaAtual.setDate(diaAtual.getDate() + i);
         const diaIso = paraIsoDate(diaAtual);
@@ -1415,10 +1268,6 @@ function renderizarVisaoMes(dataSelecionadaIso, filtroProfId) {
     }
 }
 
-// Ao clicar num agendamento resumido na visão Semana, a forma mais segura
-// de agir sobre ele (confirmar, cancelar, marcar pagamento) continua sendo
-// a visão Dia - que já tem toda a lógica de status/pagamento pronta. Então
-// só pulamos pra lá, já no dia certo, em vez de duplicar essas ações aqui.
 function abrirDetalheRapido(idAgendamento, diaIso) {
     periodoAtual = 'dia';
     document.querySelectorAll('#agenda-periodo-toggle button').forEach(b => b.classList.toggle('active', b.getAttribute('data-periodo') === 'dia'));
@@ -1428,7 +1277,9 @@ function abrirDetalheRapido(idAgendamento, diaIso) {
     atualizarAgenda();
 }
 
-// Extraí a renderização do card ocupado para não duplicar código entre as duas visões
+// ========================================================
+// NOVO CARD DA GRADE: CLARO, ORGANIZADO E COM CHECK-IN EM 1 CLIQUE
+// ========================================================
 function renderizarSlotOcupado(slot, agendamento) {
     const statusAtual = agendamento.status || 'agendado';
     slot.className = 'appointment-slot occupied';
@@ -1436,32 +1287,73 @@ function renderizarSlotOcupado(slot, agendamento) {
     slot.dataset.id = agendamento.id;
 
     const nomeAtendimento = agendamento.procedimentoNome || agendamento.tipo || 'Consulta';
-    const pagamentoPendente = Number(agendamento.valorAtendimento || 0) > 0 && agendamento.statusPagamento !== 'pago' && agendamento.statusPagamento !== 'nao_aplica';
+    const temCobranca = Number(agendamento.valorAtendimento || 0) > 0 && agendamento.statusPagamento !== 'nao_aplica';
+    const jaPago = agendamento.statusPagamento === 'pago';
 
     const selectVisao = document.getElementById('agenda-visao');
     const mostrarProfissional = selectVisao && selectVisao.value === 'salas';
-    const nomeProfissional = mostrarProfissional ? clinicaState.profissionais.find(p => String(p.id) === String(agendamento.profId))?.nome || 'Profissional' : '';
+    const nomeProfissional = mostrarProfissional
+        ? clinicaState.profissionais.find(p => String(p.id) === String(agendamento.profId))?.nome || 'Profissional'
+        : '';
 
-    // Card enxuto: só o essencial pra reconhecer a consulta na grade.
-    // Sala, valor, forma de pagamento e troca de status ficam no modal
-    // de detalhe (aberto ao clicar) - ver abrirModalDetalheAgendamento().
+    const meta = META_STATUS[statusAtual] || META_STATUS.agendado;
+
+    // Botão de avanço de etapa com 1 clique
+    let botaoProximaEtapa = '';
+    if (statusAtual === 'agendado') {
+        botaoProximaEtapa = `<button type="button" class="btn-quick-step step-confirmar" data-next="confirmado" title="Confirmar presença com 1 clique"><i class="fa-solid fa-check"></i> Confirmar</button>`;
+    } else if (statusAtual === 'confirmado') {
+        botaoProximaEtapa = `<button type="button" class="btn-quick-step step-chegou" data-next="aguardando_atendimento" title="Paciente chegou na recepção (enviar p/ fila do médico)"><i class="fa-solid fa-person-walking-arrow-right"></i> Chegou (Fila)</button>`;
+    } else if (statusAtual === 'aguardando_atendimento') {
+        botaoProximaEtapa = `<button type="button" class="btn-quick-step step-concluir" data-next="concluido" title="Finalizar atendimento"><i class="fa-solid fa-check-double"></i> Concluir</button>`;
+    } else {
+        botaoProximaEtapa = `<span class="appt-paid-tag"><i class="fa-solid fa-circle-check"></i> Finalizado</span>`;
+    }
+
+    // Indicador / Botão de Caixa separado da presença
+    let blocoFinanceiro = '';
+    if (temCobranca) {
+        blocoFinanceiro = jaPago
+            ? `<span class="appt-paid-tag" title="Pagamento já registrado"><i class="fa-solid fa-sack-dollar"></i> Pago</span>`
+            : `<button type="button" class="btn-quick-pay" title="Receber pagamento no caixa"><i class="fa-solid fa-dollar-sign"></i> Receber</button>`;
+    }
+
     slot.innerHTML = `
+        <div class="appt-card-top">
+            <span class="appt-status-tag ${statusAtual}">${meta.rotulo}</span>
+            ${agendamento.sala ? `<span class="appt-sala-tag">Sala ${escapeHTML(agendamento.sala)}</span>` : ''}
+        </div>
         <p class="appt-card-nome" title="${escapeHTML(agendamento.pacNome)}">${escapeHTML(agendamento.pacNome)}</p>
         <span class="appt-card-tipo">${escapeHTML(nomeAtendimento)}${mostrarProfissional ? ` · ${escapeHTML(nomeProfissional)}` : ''}</span>
-        ${pagamentoPendente ? '<span class="appt-card-pendencia"><i class="fa-solid fa-hand-holding-dollar"></i> Pagamento pendente</span>' : ''}
+        <div class="appt-card-footer">
+            ${botaoProximaEtapa}
+            ${blocoFinanceiro}
+        </div>
     `;
+
+    // Cliques rápidos nos botões internos não abrem o modal de detalhe
+    const btnStep = slot.querySelector('.btn-quick-step');
+    if (btnStep) {
+        btnStep.addEventListener('click', (e) => {
+            e.stopPropagation();
+            alterarStatusConsultaRapido(agendamento.id, btnStep.getAttribute('data-next'));
+        });
+    }
+
+    const btnPay = slot.querySelector('.btn-quick-pay');
+    if (btnPay) {
+        btnPay.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const notifExistente = clinicaState.notificacoes.find(n =>
+                n.tipo === 'pagamento_pendente' && n.status === 'pendente' && String(n.agendamentoId) === String(agendamento.id)
+            );
+            abrirModalPagamento(agendamento.id, notifExistente?.id || null);
+        });
+    }
 
     slot.addEventListener('click', () => abrirModalDetalheAgendamento(agendamento.id));
 }
 
-// ========================================================
-// MODAL DE DETALHE DO AGENDAMENTO
-// Concentra tudo que antes ficava espremido dentro do card da
-// grade: tipo, profissional, sala, valor, forma/status de
-// pagamento, troca de status e ação de cancelar. O card na
-// grade agora só precisa mostrar paciente + tipo (ver
-// renderizarSlotOcupado acima).
-// ========================================================
 function abrirModalDetalheAgendamento(idAgendamento) {
     const modal = document.getElementById('modal-detalhe-agendamento');
     const agendamento = clinicaState.agenda.agendamentos.find(a => String(a.id) === String(idAgendamento));
@@ -1474,9 +1366,9 @@ function abrirModalDetalheAgendamento(idAgendamento) {
     const dataFormatada = agendamento.data ? `${agendamento.data.split('-').reverse().join('/')} às ${agendamento.hora || ''}` : '';
 
     const BADGE_PAGAMENTO = {
-        pago: '💰 Pago',
-        pendente: '⏳ Pendente',
-        nao_aplica: 'Pacote / sem cobrança'
+        pago: '✅ Pago no Caixa',
+        pendente: '⏳ Aguardando Recebimento',
+        nao_aplica: 'Sessão de Pacote / Isento'
     };
 
     document.getElementById('detalhe-agendamento-titulo').textContent = agendamento.pacNome || 'Consulta';
@@ -1484,9 +1376,9 @@ function abrirModalDetalheAgendamento(idAgendamento) {
         <div class="detalhe-info-row"><span class="rotulo">Atendimento</span><span class="valor">${escapeHTML(nomeAtendimento)}</span></div>
         <div class="detalhe-info-row"><span class="rotulo">Profissional</span><span class="valor">${escapeHTML(profissional ? profissional.nome : '-')}</span></div>
         <div class="detalhe-info-row"><span class="rotulo">Data / Horário</span><span class="valor">${escapeHTML(dataFormatada)}</span></div>
-        <div class="detalhe-info-row"><span class="rotulo">Sala</span><span class="valor">${agendamento.sala ? escapeHTML(agendamento.sala) : '-'}</span></div>
+        <div class="detalhe-info-row"><span class="rotulo">Sala Física</span><span class="valor">Sala ${agendamento.sala ? escapeHTML(agendamento.sala) : '-'}</span></div>
         <div class="detalhe-info-row"><span class="rotulo">Valor</span><span class="valor">${agendamento.valorAtendimento ? formatCurrency(agendamento.valorAtendimento) : '-'}</span></div>
-        <div class="detalhe-info-row"><span class="rotulo">Pagamento</span><span class="valor">${BADGE_PAGAMENTO[agendamento.statusPagamento] || '-'}</span></div>
+        <div class="detalhe-info-row"><span class="rotulo">Situação no Caixa</span><span class="valor">${BADGE_PAGAMENTO[agendamento.statusPagamento] || '-'}</span></div>
     `;
 
     const selectStatus = document.getElementById('detalhe-agendamento-status');
@@ -1509,23 +1401,17 @@ export async function carregarBloqueios() {
             where("clinicaId", "==", clinicaState.sessao.clinicaId)
         );
         const querySnapshot = await getDocs(q);
-
         clinicaState.agenda.bloqueios = [];
-
         querySnapshot.forEach((doc) => {
-            clinicaState.agenda.bloqueios.push({
-                ...doc.data(),
-                id: String(doc.id)
-            });
+            clinicaState.agenda.bloqueios.push({ ...doc.data(), id: String(doc.id) });
         });
-
         atualizarAgenda();
-
     } catch (error) {
         console.error("Erro ao buscar bloqueios da agenda: ", error);
         showToast('Erro ao carregar bloqueios de horário.', 'error');
     }
 }
+
 export async function carregarAgendamentos() {
     try {
         const q = query(
@@ -1533,18 +1419,11 @@ export async function carregarAgendamentos() {
             where("clinicaId", "==", clinicaState.sessao.clinicaId)
         );
         const querySnapshot = await getDocs(q);
-        
         clinicaState.agenda.agendamentos = [];
-                  
         querySnapshot.forEach((doc) => {
-            clinicaState.agenda.agendamentos.push({
-                ...doc.data(),
-                id: String(doc.id) 
-            });
+            clinicaState.agenda.agendamentos.push({ ...doc.data(), id: String(doc.id) });
         });
-        
         atualizarAgenda(); 
-             
     } catch (error) {
         console.error("Erro ao buscar agenda: ", error);
         showToast('Erro ao carregar agendamentos.', 'error');

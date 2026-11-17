@@ -407,9 +407,13 @@ export function initAuth() {
 
     if (btnAbrirAlterarSenha && modalAlterarSenha) {
         btnAbrirAlterarSenha.addEventListener('click', () => {
+            // Fecha a sidebar e o backdrop caso esteja em tela menor
+            document.getElementById('sidebar')?.classList.remove('active');
+            document.getElementById('mobile-backdrop')?.classList.remove('active');
+
             formAlterarSenha?.reset();
             modalAlterarSenha.classList.add('active');
-            document.getElementById('senha-atual')?.focus();
+            setTimeout(() => document.getElementById('senha-atual')?.focus(), 50);
         });
     }
 
@@ -526,7 +530,7 @@ function aplicarPermissoesDeTela() {
     if(formFinanceiroRecepcao) formFinanceiroRecepcao.style.display = 'none';
     // Auditoria é o oposto dos outros: só aparece para o Administrador
     if(btnAudit) btnAudit.style.display = 'none';
-    // "Meu Painel" é o oposto também: só o Doutor(a) enxerga
+    if(btnConfig) btnConfig.style.display = 'none';
     if(btnPainelMedico) btnPainelMedico.style.display = 'none';
 
     // Regras de Bloqueio

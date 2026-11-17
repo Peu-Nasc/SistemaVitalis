@@ -4,26 +4,102 @@ import { db } from './firebase.js';
 import { collection, addDoc, getDocs, doc, getDoc, updateDoc, deleteDoc, query, where } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js';
 import { registrarAuditoria } from './auditoria.js';
 
-// ========================================================
-// TABELA DE PROCEDIMENTOS
-// Cadastro central de valores por tipo de atendimento - hoje usado na
-// Agenda (pra ninguém digitar preço na mão ao marcar consulta) e serve
-// de base pro Financeiro. Só o Administrador cadastra/edita valores
-// (ver aplicarPermissoesDeTela em login.js); os demais perfis só
-// consomem essa lista onde for preciso.
-//
-// Cada procedimento tem um valor base pra clínica inteira, com a opção
-// de cadastrar "exceções" - valores diferentes pra profissionais
-// específicos, pra quando um especialista cobra diferente do padrão.
-// ========================================================
-
 let procedimentoEmEdicaoId = null;
 let contadorLinhaExcecao = 0;
 
+// Garante que o formulário de Procedimento tenha os campos de Cartão/Pix, Custo de Insumo e Profissional Vinculado
+function injetarCamposExtrasNoModalProcedimento() {
+    const form = document.getElementById('form-procedimento');
+    const campoValorBase = document.getElementById('proc-valor');
+    const selectCategoria = document.getElementById('proc-categoria');
+    if (!form || !campoValorBase || document.getElementById('proc-valor-cartao')) return;
+
+    // 1. Amplia as opções de categoria para cobrir todas as áreas da clínica
+    if (selectCategoria) {
+        const categoriasExtras = [
+            'Ginecologia', 'Enfermagem Obstétrica', 'Biomedicina Estética',
+            'Ultrassonografia', 'Dermatologia', 'Oftalmologia', 'Psiquiatria',
+            'Neurologia', 'Cardiologia', 'Pediatria', 'Endocrinologia',
+            'Nutrição', 'Psicopedagogia', 'Psicomotricidade', 'Musicoterapia'
+        ];
+        categoriasExtras.forEach(cat => {
+            if (!Array.from(selectCategoria.options).some(o => o.value === cat)) {
+                const opt = document.createElement('option');
+                opt.value = cat;
+                opt.textContent = cat;
+                selectCategoria.insertBefore(opt, selectCategoria.lastElementChild);
+            }
+        });
+    }
+
+    // 2. Ajusta o rótulo do Valor Base para "Valor em Espécie (Dinheiro)" e cria "Valor Cartão / Pix" ao lado
+    const grupoValorEsp = campoValorBase.closest('.form-group');
+    if (grupoValorEsp) {
+        grupoValorEsp.classList.remove('full-width');
+        const label = grupoValorEsp.querySelector('label');
+        if (label) label.textContent = 'Valor em Espécie (Dinheiro) *';
+
+        const grupoCartao = document.createElement('div');
+        grupoCartao.className = 'form-group';
+        grupoCartao.innerHTML = `
+            <label>Valor Cartão / Pix (R$)</label>
+            <input type="text" id="proc-valor-cartao" class="input-premium" placeholder="0,00">
+        `;
+        grupoValorEsp.insertAdjacentElement('afterend', grupoCartao);
+        aplicarMascaraMoeda(grupoCartao.querySelector('#proc-valor-cartao'));
+
+        // Seletor de Tipo (Consulta, Exame, Procedimento, Avaliação) + Profissional Padrão
+        const grupoVinculo = document.createElement('div');
+        grupoVinculo.className = 'form-group full-width form-grid';
+        grupoVinculo.style.marginTop = '4px';
+        grupoVinculo.innerHTML = `
+            <div class="form-group">
+                <label>Tipo do Item</label>
+                <select id="proc-tipo-item" class="input-premium">
+                    <option value="Consulta">🩺 Consulta / Sessão</option>
+                    <option value="Exame">🔬 Exame (USG, Preventivo, Retina...)</option>
+                    <option value="Procedimento">💉 Procedimento / Estética / DIU</option>
+                    <option value="Avaliação">📋 Anamnese / Avaliação</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Profissional Responsável (opcional)</label>
+                <select id="proc-profissional-padrao" class="input-premium">
+                    <option value="">Todos da especialidade</option>
+                </select>
+            </div>
+        `;
+        grupoCartao.insertAdjacentElement('afterend', grupoVinculo);
+    }
+
+    // 3. Adiciona campo opcional de Custo de Insumo (ex: -R$ 500 Botox antes dos 30%)
+    const configSplit = document.getElementById('proc-split-config');
+    if (configSplit && !document.getElementById('proc-custo-insumo')) {
+        const divCusto = document.createElement('div');
+        divCusto.className = 'form-group mt-10';
+        divCusto.innerHTML = `
+            <label>Descontar Custo de Material/Insumo antes do %? (R$ opcional)</label>
+            <input type="text" id="proc-custo-insumo" class="input-premium" placeholder="Ex: 500,00 (Botox/Preenchimento)">
+        `;
+        configSplit.appendChild(divCusto);
+        aplicarMascaraMoeda(divCusto.querySelector('#proc-custo-insumo'));
+        divCusto.querySelector('#proc-custo-insumo').addEventListener('input', atualizarPreviewSplit);
+    }
+}
+
+function popularSelectProfissionalPadrao(selecionadoId = '') {
+    const sel = document.getElementById('proc-profissional-padrao');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">Todos da especialidade</option>' +
+        clinicaState.profissionais.map(p => `<option value="${p.id}" ${String(p.id) === String(selecionadoId) ? 'selected' : ''}>${escapeHTML(p.nome)}</option>`).join('');
+}
+
 export function initProcedimentos() {
+    injetarCamposExtrasNoModalProcedimento();
+
     renderCardGrid('proc-mini-dash', [
-        { id: 'proc-stat-total', label: 'Procedimentos Cadastrados', initial: '0', variant: 'primary' },
-        { id: 'proc-stat-media', label: 'Valor Médio', initial: 'R$ 0,00', variant: 'success', valueClass: 'positivo' }
+        { id: 'proc-stat-total', label: 'Consultas / Exames / Procedimentos', initial: '0', variant: 'primary' },
+        { id: 'proc-stat-media', label: 'Ticket Médio (Espécie)', initial: 'R$ 0,00', variant: 'success', valueClass: 'positivo' }
     ]);
 
     const modal = document.getElementById('modal-procedimento');
@@ -32,8 +108,9 @@ export function initProcedimentos() {
 
     if (btnAbrir) {
         btnAbrir.addEventListener('click', () => {
-            limparListaExcecoes();
-            resetarSplitParaPadrao();
+            injetarCamposExtrasNoModalProcedimento();
+            fecharFormularioProcedimento();
+            popularSelectProfissionalPadrao();
             modal.classList.add('active');
         });
     }
@@ -50,12 +127,6 @@ export function initProcedimentos() {
         btnAddExcecao.addEventListener('click', () => adicionarLinhaExcecao());
     }
 
-    // ==========================================
-    // SPLIT DE REPASSE (profissional x clínica) - simples e dinâmico:
-    // um slider de 0 a 100% que recalcula os dois valores em tempo real,
-    // olhando pro Valor Base atual. Só existe dentro do modal, que já é
-    // exclusivo do Administrador (ver aplicarPermissoesDeTela em login.js).
-    // ==========================================
     const checkSplitAtivo = document.getElementById('proc-split-ativo');
     const containerSplit = document.getElementById('proc-split-config');
     const inputSplitPercentual = document.getElementById('proc-split-percentual');
@@ -66,13 +137,9 @@ export function initProcedimentos() {
             atualizarPreviewSplit();
         });
     }
-    if (inputSplitPercentual) {
-        inputSplitPercentual.addEventListener('input', atualizarPreviewSplit);
-    }
+    if (inputSplitPercentual) inputSplitPercentual.addEventListener('input', atualizarPreviewSplit);
     const inputValorBase = document.getElementById('proc-valor');
-    if (inputValorBase) {
-        inputValorBase.addEventListener('input', atualizarPreviewSplit);
-    }
+    if (inputValorBase) inputValorBase.addEventListener('input', atualizarPreviewSplit);
 
     const search = document.getElementById('search-procedimentos');
     if (search) {
@@ -86,16 +153,24 @@ export function initProcedimentos() {
             const btnSalvar = e.target.querySelector('button[type="submit"]');
 
             await comEstadoDeCarregamento(btnSalvar, 'Salvando...', async () => {
-                const valorBaseTexto = document.getElementById('proc-valor').value.replace(/\./g, '').replace(',', '.');
+                const valorEspTexto = document.getElementById('proc-valor').value.replace(/\./g, '').replace(',', '.');
+                const valorEsp = parseFloat(valorEspTexto) || 0;
 
-                if (!valorBaseTexto || parseFloat(valorBaseTexto) <= 0) {
-                    showToast('Informe um valor base válido.', 'error');
+                if (valorEsp <= 0) {
+                    showToast('Informe um valor em espécie válido.', 'error');
                     return;
                 }
 
+                const valorCartaoTexto = (document.getElementById('proc-valor-cartao')?.value || '').replace(/\./g, '').replace(',', '.');
+                const valorCartaoPix = parseFloat(valorCartaoTexto) || valorEsp;
+
+                const custoInsumoTexto = (document.getElementById('proc-custo-insumo')?.value || '').replace(/\./g, '').replace(',', '.');
+                const custoFixoInsumo = parseFloat(custoInsumoTexto) || 0;
+
+                const profPadraoId = document.getElementById('proc-profissional-padrao')?.value || null;
+                const profPadraoObj = clinicaState.profissionais.find(p => String(p.id) === String(profPadraoId));
+
                 const excecoes = lerExcecoesDoFormulario();
-                // Um profissional não pode aparecer duas vezes na lista de exceções
-                // do mesmo procedimento - evitaria ambiguidade sobre qual valor vale.
                 const idsRepetidos = excecoes.map(x => x.profissionalId).filter((id, i, arr) => arr.indexOf(id) !== i);
                 if (idsRepetidos.length > 0) {
                     showToast('Há um profissional repetido nas exceções de valor.', 'error');
@@ -106,9 +181,15 @@ export function initProcedimentos() {
                 const percentualProfissional = splitAtivo ? (parseInt(document.getElementById('proc-split-percentual').value, 10) || 0) : null;
 
                 const dadosParaSalvar = {
-                    nome: document.getElementById('proc-nome').value,
+                    nome: document.getElementById('proc-nome').value.trim(),
                     categoria: document.getElementById('proc-categoria').value,
-                    valorBase: parseFloat(valorBaseTexto),
+                    tipoItem: document.getElementById('proc-tipo-item')?.value || 'Procedimento',
+                    valorBase: valorEsp,
+                    valorEspecie: valorEsp,
+                    valorCartaoPix,
+                    custoFixoInsumo,
+                    profissionalPadraoId: profPadraoId || null,
+                    profissionalPadraoNome: profPadraoObj ? profPadraoObj.nome : null,
                     excecoes,
                     splitAtivo,
                     percentualProfissional,
@@ -117,21 +198,14 @@ export function initProcedimentos() {
 
                 try {
                     if (procedimentoEmEdicaoId) {
-                        // Valida se o documento existe antes de atualizar
                         const docRef = doc(db, "procedimentos", procedimentoEmEdicaoId);
-                        const docSnap = await getDoc(docRef);
-                        if (!docSnap.exists()) {
-                            showToast('Este procedimento foi removido por outro usuário.', 'warning');
-                            await carregarProcedimentos();
-                            return;
-                        }
                         await updateDoc(docRef, dadosParaSalvar);
                         showToast('Procedimento atualizado com sucesso.', 'success');
-                        await registrarAuditoria({ acao: 'Edição', modulo: 'Procedimentos', descricao: `Procedimento atualizado: ${dadosParaSalvar.nome} (${formatCurrency(dadosParaSalvar.valorBase)})` });
+                        await registrarAuditoria({ acao: 'Edição', modulo: 'Procedimentos', descricao: `Procedimento atualizado: ${dadosParaSalvar.nome}` });
                     } else {
                         await addDoc(collection(db, "procedimentos"), dadosParaSalvar);
                         showToast('Procedimento cadastrado com sucesso.', 'success');
-                        await registrarAuditoria({ acao: 'Criação', modulo: 'Procedimentos', descricao: `Novo procedimento: ${dadosParaSalvar.nome} (${formatCurrency(dadosParaSalvar.valorBase)})` });
+                        await registrarAuditoria({ acao: 'Criação', modulo: 'Procedimentos', descricao: `Novo procedimento: ${dadosParaSalvar.nome}` });
                     }
 
                     modal.classList.remove('active');
@@ -153,16 +227,13 @@ export function initProcedimentos() {
 
             if (btnExcluir) {
                 const id = btnExcluir.getAttribute('data-id');
-                if (await confirmarAcao('Deseja realmente excluir este procedimento da tabela? Ele deixará de aparecer como opção na Agenda.', { titulo: 'Excluir procedimento', textoConfirmar: 'Excluir' })) {
-                    const excluido = clinicaState.procedimentos.find(p => String(p.id) === String(id));
+                if (await confirmarAcao('Deseja realmente excluir este item da tabela?', { titulo: 'Excluir item', textoConfirmar: 'Excluir' })) {
                     try {
                         await deleteDoc(doc(db, "procedimentos", id));
-                        showToast('Procedimento excluído com sucesso.', 'success');
-                        await registrarAuditoria({ acao: 'Exclusão', modulo: 'Procedimentos', descricao: `Procedimento excluído: ${excluido ? excluido.nome : id}` });
+                        showToast('Item excluído com sucesso.', 'success');
                         await carregarProcedimentos();
                     } catch (error) {
-                        console.error("Erro ao excluir procedimento: ", error);
-                        showToast('Falha ao excluir o procedimento.', 'error');
+                        showToast('Falha ao excluir o item.', 'error');
                     }
                 }
             }
@@ -178,14 +249,11 @@ export function initProcedimentos() {
 
 function fecharFormularioProcedimento() {
     procedimentoEmEdicaoId = null;
-    document.getElementById('form-procedimento').reset();
+    document.getElementById('form-procedimento')?.reset();
     limparListaExcecoes();
     resetarSplitParaPadrao();
 }
 
-// Recalcula e mostra "Profissional: X% - R$ Y" / "Clínica: (100-X)% - R$ Z"
-// com base no Valor Base atual e no % escolhido no slider - roda a cada
-// mudança no slider ou no valor, pra sensação de "ao vivo".
 function atualizarPreviewSplit() {
     const elPreviewProf = document.getElementById('proc-split-preview-prof');
     const elPreviewClinica = document.getElementById('proc-split-preview-clinica');
@@ -197,21 +265,27 @@ function atualizarPreviewSplit() {
     const valorBaseTexto = document.getElementById('proc-valor').value.replace(/\./g, '').replace(',', '.');
     const valorBase = parseFloat(valorBaseTexto) || 0;
 
-    const valorProf = valorBase * (percentualProf / 100);
-    const valorClinica = valorBase * (percentualClinica / 100);
+    const custoInsumoTexto = (document.getElementById('proc-custo-insumo')?.value || '').replace(/\./g, '').replace(',', '.');
+    const custoInsumo = parseFloat(custoInsumoTexto) || 0;
+
+    const baseCalculo = Math.max(0, valorBase - custoInsumo);
+    const valorProf = baseCalculo * (percentualProf / 100);
+    const valorClinica = (baseCalculo * (percentualClinica / 100)) + custoInsumo;
 
     elPreviewProf.textContent = `${percentualProf}% - ${formatCurrency(valorProf)}`;
-    elPreviewClinica.textContent = `${percentualClinica}% - ${formatCurrency(valorClinica)}`;
+    elPreviewClinica.textContent = `${percentualClinica}%${custoInsumo > 0 ? ' + Insumo' : ''} - ${formatCurrency(valorClinica)}`;
 }
 
 function resetarSplitParaPadrao() {
     const checkSplitAtivo = document.getElementById('proc-split-ativo');
     const containerSplit = document.getElementById('proc-split-config');
     const inputSplitPercentual = document.getElementById('proc-split-percentual');
+    const inputCustoInsumo = document.getElementById('proc-custo-insumo');
 
-    if (checkSplitAtivo) checkSplitAtivo.checked = false;
-    if (containerSplit) containerSplit.style.display = 'none';
-    if (inputSplitPercentual) inputSplitPercentual.value = 50;
+    if (checkSplitAtivo) checkSplitAtivo.checked = true;
+    if (containerSplit) containerSplit.style.display = 'block';
+    if (inputSplitPercentual) inputSplitPercentual.value = 70; // Padrão Clínica Amora: 70% Prof / 30% Clínica
+    if (inputCustoInsumo) inputCustoInsumo.value = '';
     atualizarPreviewSplit();
 }
 
@@ -220,8 +294,6 @@ function limparListaExcecoes() {
     if (lista) lista.innerHTML = '';
 }
 
-// Monta uma linha "Profissional + Valor + Remover" dentro do modal.
-// valores pré-preenchidos são usados na edição de um procedimento existente.
 function adicionarLinhaExcecao(profissionalIdSelecionado = '', valorPreenchido = '') {
     const lista = document.getElementById('proc-excecoes-lista');
     if (!lista) return;
@@ -254,9 +326,6 @@ function lerExcecoesDoFormulario() {
         const profissionalId = selectProf ? selectProf.value : '';
         const valorTexto = inputValor ? inputValor.value.replace(/\./g, '').replace(',', '.') : '';
 
-        // Linha sem profissional escolhido ou sem valor preenchido é
-        // ignorada (evita salvar exceção "vazia" se alguém só clicou em
-        // Adicionar e mudou de ideia sem preencher).
         if (!profissionalId || !valorTexto || parseFloat(valorTexto) <= 0) return;
 
         const profissional = clinicaState.profissionais.find(p => String(p.id) === String(profissionalId));
@@ -271,12 +340,27 @@ function lerExcecoesDoFormulario() {
 }
 
 function abrirFormularioParaEdicao(item) {
+    injetarCamposExtrasNoModalProcedimento();
     procedimentoEmEdicaoId = item.id;
 
     document.getElementById('proc-nome').value = item.nome;
-    document.getElementById('proc-categoria').value = item.categoria;
-    const valorBase = Number(item.valorBase) || 0;
-    document.getElementById('proc-valor').value = valorBase.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+    document.getElementById('proc-categoria').value = item.categoria || 'Outro';
+    if (document.getElementById('proc-tipo-item')) {
+        document.getElementById('proc-tipo-item').value = item.tipoItem || 'Procedimento';
+    }
+    popularSelectProfissionalPadrao(item.profissionalPadraoId || '');
+
+    const valorEsp = Number(item.valorEspecie ?? item.valorBase) || 0;
+    const valorPix = Number(item.valorCartaoPix ?? valorEsp) || 0;
+    const custoInsumo = Number(item.custoFixoInsumo || 0);
+
+    document.getElementById('proc-valor').value = valorEsp.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+    if (document.getElementById('proc-valor-cartao')) {
+        document.getElementById('proc-valor-cartao').value = valorPix.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+    }
+    if (document.getElementById('proc-custo-insumo')) {
+        document.getElementById('proc-custo-insumo').value = custoInsumo > 0 ? custoInsumo.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '';
+    }
 
     limparListaExcecoes();
     (item.excecoes || []).forEach(x => {
@@ -288,7 +372,7 @@ function abrirFormularioParaEdicao(item) {
     const containerSplit = document.getElementById('proc-split-config');
     checkSplitAtivo.checked = !!item.splitAtivo;
     containerSplit.style.display = item.splitAtivo ? 'block' : 'none';
-    document.getElementById('proc-split-percentual').value = item.splitAtivo ? (item.percentualProfissional ?? 50) : 50;
+    document.getElementById('proc-split-percentual').value = item.splitAtivo ? (item.percentualProfissional ?? 70) : 70;
     atualizarPreviewSplit();
 
     document.getElementById('modal-procedimento').classList.add('active');
@@ -299,32 +383,46 @@ export function atualizarTabelaProcedimentos(filtro = '') {
     if (!corpo) return;
 
     const filtrados = clinicaState.procedimentos.filter(p =>
-        p.nome.toLowerCase().includes(filtro) ||
-        (p.categoria || '').toLowerCase().includes(filtro)
+        (p.nome || '').toLowerCase().includes(filtro) ||
+        (p.categoria || '').toLowerCase().includes(filtro) ||
+        (p.profissionalPadraoNome || '').toLowerCase().includes(filtro) ||
+        (p.tipoItem || '').toLowerCase().includes(filtro)
     );
 
     corpo.innerHTML = filtrados.map(p => {
-        const excecoes = p.excecoes || [];
-        const textoExcecoes = excecoes.length === 0
-            ? '<span style="color:#6C757D;">Nenhuma - valor único</span>'
-            : excecoes.map(x => `${escapeHTML(x.profissionalNome)}: <strong>${formatCurrency(x.valor)}</strong>`).join('<br>');
+        const vEspecie = Number(p.valorEspecie ?? p.valorBase ?? 0);
+        const vCartao = Number(p.valorCartaoPix ?? vEspecie);
+        const custoInsumo = Number(p.custoFixoInsumo || 0);
+
+        const { valorProfissional, valorClinica, percentualProfissional } = splitDoProcedimento(p.id, vEspecie);
+        const percClinica = 100 - percentualProfissional;
 
         const textoSplit = p.splitAtivo
-            ? `<small>Profissional: <strong>${formatCurrency(p.valorBase * (p.percentualProfissional / 100))}</strong> (${p.percentualProfissional}%)<br>Clínica: <strong>${formatCurrency(p.valorBase * ((100 - p.percentualProfissional) / 100))}</strong> (${100 - p.percentualProfissional}%)</small>`
-            : '<span style="color:#6C757D;">Não configurado</span>';
+            ? `<small>Prof (${percentualProfissional}%): <strong>${formatCurrency(valorProfissional)}</strong><br>Clínica (${percClinica}%${custoInsumo > 0 ? ` + R$ ${custoInsumo} insumo` : ''}): <strong>${formatCurrency(valorClinica)}</strong></small>`
+            : '<span style="color:#6C757D;">100% Clínica</span>';
+
+        const profVinculado = p.profissionalPadraoNome
+            ? `<span class="badge neutral">${escapeHTML(p.profissionalPadraoNome)}</span>`
+            : '<span style="color:#6C757D;">Geral da Especialidade</span>';
 
         return `<tr>
-            <td><strong>${escapeHTML(p.nome)}</strong></td>
-            <td><span class="badge primary">${escapeHTML(p.categoria)}</span></td>
-            <td class="positivo valor-lancamento">${formatCurrency(p.valorBase)}</td>
+            <td>
+                <strong>${escapeHTML(p.nome)}</strong><br>
+                <small style="color:var(--text-light);">${escapeHTML(p.tipoItem || 'Procedimento')}</small>
+            </td>
+            <td><span class="badge primary">${escapeHTML(p.categoria || 'Geral')}</span></td>
+            <td>
+                <span class="positivo valor-lancamento" title="Pagamento em Espécie">${formatCurrency(vEspecie)} <small>(Espécie)</small></span><br>
+                <small style="color:var(--primary-color); font-weight:600;">💳 Cartão/Pix: ${formatCurrency(vCartao)}</small>
+            </td>
             <td>${textoSplit}</td>
-            <td><small>${textoExcecoes}</small></td>
+            <td>${profVinculado}</td>
             <td>
                 <div class="row-actions">
-                    <button class="btn-action btn-edit btn-editar-proc" data-id="${p.id}" title="Editar Procedimento">
+                    <button class="btn-action btn-edit btn-editar-proc" data-id="${p.id}" title="Editar">
                         <i class="fa-solid fa-pen"></i>
                     </button>
-                    <button class="btn-action btn-delete btn-excluir-proc" data-id="${p.id}" title="Excluir Procedimento">
+                    <button class="btn-action btn-delete btn-excluir-proc" data-id="${p.id}" title="Excluir">
                         <i class="fa-solid fa-trash"></i>
                     </button>
                 </div>
@@ -333,7 +431,7 @@ export function atualizarTabelaProcedimentos(filtro = '') {
     }).join('');
 
     if (filtrados.length === 0) {
-        corpo.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#6C757D; padding:20px;">Nenhum procedimento cadastrado ainda.</td></tr>';
+        corpo.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#6C757D; padding:20px;">Nenhum procedimento ou exame encontrado.</td></tr>';
     }
 
     const elTotal = document.getElementById('proc-stat-total');
@@ -341,39 +439,48 @@ export function atualizarTabelaProcedimentos(filtro = '') {
     if (elTotal) elTotal.textContent = clinicaState.procedimentos.length;
     if (elMedia) {
         const media = clinicaState.procedimentos.length > 0
-            ? clinicaState.procedimentos.reduce((soma, p) => soma + p.valorBase, 0) / clinicaState.procedimentos.length
+            ? clinicaState.procedimentos.reduce((soma, p) => soma + Number(p.valorEspecie ?? p.valorBase ?? 0), 0) / clinicaState.procedimentos.length
             : 0;
         elMedia.textContent = formatCurrency(media);
     }
 }
 
-// Utilitário pra outros módulos (Agenda) descobrirem o valor certo de um
-// procedimento pra um profissional específico - aplica a exceção se
-// existir, senão cai no valor base.
-export function valorDoProcedimentoParaProfissional(procedimentoId, profissionalId) {
+// Retorna o valor certo conforme o profissional e a forma de pagamento ('Dinheiro' vs 'Pix'/'Credito'/'Debito')
+export function valorDoProcedimentoParaProfissional(procedimentoId, profissionalId, formaPagamento = 'Dinheiro') {
     const proc = clinicaState.procedimentos.find(p => String(p.id) === String(procedimentoId));
-    if (!proc) return 0;
+    if (!proc) {
+        // Verifica se é um pacote selecionado na Agenda
+        const pac = clinicaState.pacotes.find(x => String(x.id) === String(procedimentoId));
+        if (!pac) return 0;
+        const ehEspeciePac = formaPagamento === 'Dinheiro';
+        return Number(ehEspeciePac ? (pac.valorEspecie ?? pac.valorFechado) : (pac.valorCartaoPix ?? pac.valorFechado)) || 0;
+    }
 
     const excecao = (proc.excecoes || []).find(x => String(x.profissionalId) === String(profissionalId));
-    const valor = excecao ? excecao.valor : proc.valorBase;
+    if (excecao) return Number(excecao.valor) || 0;
+
+    const ehEspecie = formaPagamento === 'Dinheiro';
+    const valor = ehEspecie
+        ? (proc.valorEspecie ?? proc.valorBase)
+        : (proc.valorCartaoPix ?? proc.valorBase);
     return Number(valor) || 0;
 }
 
-// Utilitário pra outros módulos (Financeiro, Agenda) calcularem quanto do
-// valor de uma consulta específica fica com o profissional e quanto fica
-// com a clínica, usando o % configurado no procedimento. Se o split não
-// estiver ativo, retorna tudo como "profissional" (comportamento anterior,
-// sem repasse configurado).
+// Calcula o repasse respeitando a dedução de insumo (ex: -R$ 500 Botox Dra. Seridianny antes dos 30%)
 export function splitDoProcedimento(procedimentoId, valorConsulta) {
-    const proc = clinicaState.procedimentos.find(p => String(p.id) === String(procedimentoId));
+    const proc = clinicaState.procedimentos.find(p => String(p.id) === String(procedimentoId))
+        || clinicaState.pacotes.find(p => String(p.id) === String(procedimentoId));
     const valor = Number(valorConsulta) || 0;
 
     if (!proc || !proc.splitAtivo) {
         return { valorProfissional: valor, valorClinica: 0, percentualProfissional: 100 };
     }
 
-    const percentualProfissional = proc.percentualProfissional ?? 100;
-    const valorProfissional = valor * (percentualProfissional / 100);
+    const custoInsumo = Number(proc.custoFixoInsumo || 0);
+    const baseLiquida = Math.max(0, valor - custoInsumo);
+    const percentualProfissional = proc.percentualProfissional ?? 70;
+
+    const valorProfissional = baseLiquida * (percentualProfissional / 100);
     const valorClinica = valor - valorProfissional;
 
     return { valorProfissional, valorClinica, percentualProfissional };
@@ -392,8 +499,7 @@ export async function carregarProcedimentos() {
             clinicaState.procedimentos.push({ ...doc.data(), id: String(doc.id) });
         });
 
-        clinicaState.procedimentos.sort((a, b) => a.nome.localeCompare(b.nome));
-
+        clinicaState.procedimentos.sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
         atualizarTabelaProcedimentos();
     } catch (error) {
         console.error("Erro ao buscar procedimentos: ", error);

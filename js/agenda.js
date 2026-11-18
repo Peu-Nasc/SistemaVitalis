@@ -1707,7 +1707,7 @@ export function atualizarAgenda() {
     const bateFiltroStatus = (ag) => filtroStatusAtual === 'todos' || (ag.status || 'agendado') === filtroStatusAtual;
     
     if (visaoAtual === 'salas' && clinicaState.sessao.perfil !== 'Doutor(a)') {
-        const salasFisicas = ['1', '2', '3'];
+        const salasFisicas = ['1', '2', '3', '4', '5'];
         salasFisicas.forEach(sala => {
             const coluna = document.createElement('div');
             coluna.className = 'professional-column';

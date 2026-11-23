@@ -4,6 +4,21 @@ import { db } from './firebase.js';
 import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, where } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js';
 import { registrarAuditoria } from './auditoria.js';
 
+import { splitDoProcedimento } from './procedimentos.js';
+
+// Helper central: calcula quanto fica para o profissional e quanto fica para a clínica
+function calcularSplitLancamento(l) {
+    if (l.tipo !== 'Receita') {
+        return { temSplit: false, valorProfissional: 0, valorClinica: 0, percentualProfissional: 0 };
+    }
+    if (!l.procedimentoId) {
+        return { temSplit: false, valorProfissional: 0, valorClinica: Number(l.valor) || 0, percentualProfissional: 0 };
+    }
+    const split = splitDoProcedimento(l.procedimentoId, l.valor);
+    const temSplit = split.valorProfissional > 0 && split.valorClinica > 0;
+    return { temSplit, ...split };
+}
+
 let lancamentoEmEdicaoId = null;
 let dreChartInstance = null;
 let chartReceitaDespesaInstance = null;
@@ -31,10 +46,11 @@ export function initFinanceiro() {
         { id: 'dash-lucro', label: 'Lucro Líquido (DRE)', initial: 'R$ 0,00', variant: 'primary', valueClass: 'total' }
     ]);
 
-    renderCardGrid('fin-mini-dash', [
-        { id: 'fin-stat-receitas', label: 'Entradas (Receitas)', initial: 'R$ 0,00', variant: 'success', valueClass: 'positivo', compact: true },
+   renderCardGrid('fin-mini-dash', [
+        { id: 'fin-stat-receitas', label: 'Entradas (Bruto)', initial: 'R$ 0,00', variant: 'success', valueClass: 'positivo', compact: true },
+        { id: 'fin-stat-repasses', label: 'Repasses a Profissionais', initial: 'R$ 0,00', variant: 'warning', valueClass: 'warning', compact: true },
         { id: 'fin-stat-despesas', label: 'Saídas (Despesas)', initial: 'R$ 0,00', variant: 'danger', valueClass: 'negativo', compact: true },
-        { id: 'fin-stat-saldo', label: 'Saldo do Filtro Atual', initial: 'R$ 0,00', variant: 'primary', valueClass: 'total', compact: true }
+        { id: 'fin-stat-saldo', label: 'Saldo Líquido da Clínica', initial: 'R$ 0,00', variant: 'primary', valueClass: 'total', compact: true }
     ]);
 
     // ==========================================
@@ -995,6 +1011,7 @@ function filtrarLancamentos(filtroTexto = '', filtroMes = 'todos') {
 // ========================================================
 export function atualizarTabelaFinanceiro(filtroTexto = '', filtroMes = 'todos') {
     let totalReceitas = 0;
+    let totalRepasses = 0;
     let totalDespesas = 0;
 
     let filtrados = filtrarLancamentos(filtroTexto, filtroMes);
@@ -1004,26 +1021,35 @@ export function atualizarTabelaFinanceiro(filtroTexto = '', filtroMes = 'todos')
         filtrados = filtrados.filter(l => l.tipo === 'Receita');
     }
 
-    // Renderiza a Tabela Agrupada
     document.getElementById('finance-table-body').innerHTML = filtrados.slice().reverse().map(l => {
         const isEntrada = l.tipo === 'Receita';
+        const split = calcularSplitLancamento(l);
 
         if (l.status === 'Recebido/Pago') {
-            if (isEntrada) totalReceitas += l.valor;
-            else totalDespesas += l.valor;
+            if (isEntrada) {
+                totalReceitas += l.valor;
+                if (split.temSplit) totalRepasses += split.valorProfissional;
+            } else {
+                totalDespesas += l.valor;
+            }
         }
 
-        // Ícones inteligentes baseados na forma de pagamento
         let iconPag = 'fa-money-bill';
-        if(l.pagamento === 'Pix') iconPag = 'fa-brands fa-pix';
-        else if(l.pagamento.includes('Credito') || l.pagamento.includes('Debito')) iconPag = 'fa-credit-card';
-        else if(l.pagamento === 'Boleto') iconPag = 'fa-barcode';
-        else if(l.pagamento === 'Convênio') iconPag = 'fa-file-contract';
-        
+        if (l.pagamento === 'Pix') iconPag = 'fa-brands fa-pix';
+        else if (l.pagamento.includes('Credito') || l.pagamento.includes('Debito')) iconPag = 'fa-credit-card';
+        else if (l.pagamento === 'Boleto') iconPag = 'fa-barcode';
+        else if (l.pagamento === 'Convênio') iconPag = 'fa-file-contract';
+
         let corStatus = l.status === 'Recebido/Pago' ? 'success' : (l.status === 'Glosa' || l.status === 'Inadimplente' ? 'danger bg-danger' : 'warning');
 
         const origemLabel = l.origem === 'agendamento' ? 'Agenda' : (l.origem || 'Manual');
         const nomeProcedimento = l.procedimentoNome ? ` • ${escapeHTML(l.procedimentoNome)}` : '';
+        const detalheSplit = (isEntrada && split.temSplit)
+            ? `<div style="font-size: 0.72rem; color: var(--text-light); font-weight: 500; margin-top: 3px; line-height: 1.3;">
+                    Clínica: <strong style="color: var(--primary-color);">${formatCurrency(split.valorClinica)}</strong><br>
+                    Prof. (${split.percentualProfissional}%): <strong>${formatCurrency(split.valorProfissional)}</strong>
+               </div>`
+            : '';
 
         return `<tr>
             <td>
@@ -1039,6 +1065,7 @@ export function atualizarTabelaFinanceiro(filtroTexto = '', filtroMes = 'todos')
             <td><span class="badge ${corStatus}">${escapeHTML(l.status)}</span></td>
             <td class="${isEntrada ? 'positivo' : 'negativo'} valor-lancamento">
                 ${isEntrada ? '+' : '-'} ${formatCurrency(l.valor)}
+                ${detalheSplit}
             </td>
             <td>
                 ${clinicaState.sessao.perfil === 'recepcao' ? '<span style="color: var(--text-light); font-size: 0.75rem;">—</span>' : `
@@ -1054,17 +1081,18 @@ export function atualizarTabelaFinanceiro(filtroTexto = '', filtroMes = 'todos')
         </tr>`;
     }).join('');
 
-    // Atualiza o Mini-Dashboard Local (abaixo do título)
     const elRec = document.getElementById('fin-stat-receitas');
+    const elRep = document.getElementById('fin-stat-repasses');
     const elDesp = document.getElementById('fin-stat-despesas');
     const elSaldo = document.getElementById('fin-stat-saldo');
 
-    if(elRec) elRec.textContent = formatCurrency(totalReceitas);
-    if(elDesp) elDesp.textContent = formatCurrency(totalDespesas);
-    if(elSaldo) {
-        const saldo = totalReceitas - totalDespesas;
-        elSaldo.textContent = formatCurrency(saldo);
-        elSaldo.style.color = saldo < 0 ? '#dc3545' : 'var(--primary-color)';
+    if (elRec) elRec.textContent = formatCurrency(totalReceitas);
+    if (elRep) elRep.textContent = formatCurrency(totalRepasses);
+    if (elDesp) elDesp.textContent = formatCurrency(totalDespesas);
+    if (elSaldo) {
+        const saldoLiquido = totalReceitas - totalRepasses - totalDespesas;
+        elSaldo.textContent = formatCurrency(saldoLiquido);
+        elSaldo.style.color = saldoLiquido < 0 ? '#dc3545' : 'var(--primary-color)';
     }
 }
 
@@ -1279,8 +1307,11 @@ export async function exportarFinanceiroExcel() {
                 { header: 'Vínculo', key: 'vinculo', width: 28 },
                 { header: 'Forma de Pagamento', key: 'pagamento', width: 20 },
                 { header: 'Status', key: 'status', width: 16 },
-                { header: 'Valor', key: 'valor', width: 14 },
-                { header: 'Profissional', key: 'profissional', width: 24 }
+                { header: 'Valor Bruto', key: 'valor', width: 14 },
+                { header: 'Profissional', key: 'profissional', width: 24 },
+                { header: '% Prof.', key: 'percProf', width: 10 },
+                { header: 'Repasse Profissional', key: 'valorProfissional', width: 20 },
+                { header: 'Parte Clínica', key: 'valorClinica', width: 16 }
             ];
             abaDados.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
             abaDados.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F4C75' } };
@@ -1289,6 +1320,7 @@ export async function exportarFinanceiroExcel() {
             const bordaFina = { style: 'thin', color: { argb: 'FFE2E8F0' } };
 
             lancamentos.forEach((l, indice) => {
+                const split = calcularSplitLancamento(l);
                 const linhaAdicionada = abaDados.addRow({
                     competencia: l.competencia.split('-').reverse().join('/'),
                     caixa: l.caixa.split('-').reverse().join('/'),
@@ -1297,22 +1329,29 @@ export async function exportarFinanceiroExcel() {
                     pagamento: l.pagamento,
                     status: l.status,
                     valor: l.valor,
-                    profissional: l.profissionalNome || ''
+                    profissional: l.profissionalNome || '',
+                    percProf: split.temSplit ? `${split.percentualProfissional}%` : (l.tipo === 'Receita' ? '0%' : '-'),
+                    valorProfissional: split.temSplit ? split.valorProfissional : 0,
+                    valorClinica: l.tipo === 'Receita' ? split.valorClinica : 0
                 });
 
-                // Zebra striping (linhas pares levemente sombreadas, mais fácil de ler)
                 if (indice % 2 === 1) {
                     linhaAdicionada.eachCell({ includeEmpty: true }, (cel) => {
                         cel.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F7FA' } };
                     });
                 }
-                // Destaque de cor no valor: verde para receita, vermelho para despesa
                 linhaAdicionada.getCell('valor').font = { color: { argb: l.tipo === 'Receita' ? 'FF17A673' : 'FFDC3545' }, bold: true };
+                if (split.temSplit) {
+                    linhaAdicionada.getCell('valorProfissional').font = { color: { argb: 'FFB45309' }, bold: true };
+                    linhaAdicionada.getCell('valorClinica').font = { color: { argb: 'FF0F4C75' }, bold: true };
+                }
                 linhaAdicionada.eachCell({ includeEmpty: true }, (cel) => { cel.border = { bottom: bordaFina }; });
             });
             abaDados.getColumn('valor').numFmt = '"R$" #,##0.00';
+            abaDados.getColumn('valorProfissional').numFmt = '"R$" #,##0.00';
+            abaDados.getColumn('valorClinica').numFmt = '"R$" #,##0.00';
             const ultimaLinhaDados = abaDados.rowCount;
-            abaDados.autoFilter = { from: 'A1', to: `H${ultimaLinhaDados}` };
+            abaDados.autoFilter = { from: 'A1', to: `K${ultimaLinhaDados}` };
 
             // ================= ABA "Resumo" =================
             const abaResumo = workbook.addWorksheet('Resumo', { views: [{ showGridLines: false }] });

@@ -8,6 +8,9 @@ export const clinicaState = {
         perfil: null,      // 'admin', 'Doutor(a)' ou 'recepcao'
         clinicaId: null    // Identificador único da clínica pagante
     },
+
+// Marcadores de funcionalidades ativas para a clínica logada
+    features: {},
     
     // Áreas de dados gerais
     pacientes: [],

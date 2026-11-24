@@ -4,6 +4,36 @@ import { db } from './firebase.js';
 import { doc, getDoc, setDoc } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js';
 import { registrarAuditoria } from './auditoria.js';
 
+// Padrão para clínicas que ainda não têm o objeto "features" no Firestore.
+// O que for geral do VITALIS fica true; o que for nichado/exclusivo fica false.
+const FEATURES_PADRAO = {
+    estoqueAnvisa: true,
+    pacotesMultiprofissionais: true,
+    precoDuploEspecieCartao: false,
+    blocoOftalmologia: false,
+    escalaPersonalizada: true,
+    multiplosProcedimentos: true,
+    fechamentoDiario: true
+};
+
+// Use no JS: if (temFeature('precoDuploEspecieCartao')) { ... }
+export function temFeature(nome) {
+    if (clinicaState.features && typeof clinicaState.features[nome] === 'boolean') {
+        return clinicaState.features[nome];
+    }
+    return FEATURES_PADRAO[nome] === true;
+}
+
+// Esconde ou mostra qualquer elemento HTML que tenha o atributo data-feature="..."
+export function aplicarFeaturesNaTela() {
+    document.querySelectorAll('[data-feature]').forEach((el) => {
+        const flag = el.getAttribute('data-feature');
+        if (!temFeature(flag)) {
+            el.style.display = 'none';
+        }
+    });
+}
+
 // Converte qualquer imagem (Logo ou Avatar) em Base64 comprimido (~15KB a 30KB)
 export function imagemParaBase64Comprimido(file, larguraMax = 360, qualidade = 0.8) {
     return new Promise((resolve, reject) => {
@@ -32,8 +62,21 @@ export function imagemParaBase64Comprimido(file, larguraMax = 360, qualidade = 0
     });
 }
 
+
+//Passo 3: Marcar os elementos no app.html (e checar no JS quando precisar)
+//Agora você controla qualquer coisa — de um módulo inteiro a uma gaveta interna do prontuário — apenas colocando data-feature="nomeDaFlag" no HTML:
+//E quando a diferença for uma regra de negócio no JavaScript (por exemplo, mostrar ou não o campo de preço duplo Espécie/Cartão no js/procedimentos.js), basta importar temFeature:
+
+// JavaScript
+// import { temFeature } from './configClinica.js';
+
+// if (temFeature('precoDuploEspecieCartao')) {
+//     // injeta o campo "Valor Cartão / Pix"
+// }
 export function aplicarWhiteLabelNaTela(cfg = {}) {
     clinicaState.configClinica = cfg;
+    clinicaState.features = { ...FEATURES_PADRAO, ...(cfg.features || {}) };
+    aplicarFeaturesNaTela();
 
     const nome = cfg.nomeFantasia || 'VITALIS - Clínicas';
     const subtitulo = cfg.subtitulo || 'Ambiente Operacional Seguro';

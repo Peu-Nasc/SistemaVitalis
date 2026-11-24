@@ -1,7 +1,7 @@
 import { clinicaState } from './state.js';
 import { formatCurrency, showToast, renderCardGrid, comEstadoDeCarregamento, escapeHTML, confirmarAcao } from './Ferramentas.js';
 import { db } from './firebase.js';
-import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, where } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js';
+import { collection, addDoc, getDocs, onSnapshot, doc, updateDoc, deleteDoc, query, where } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js';
 import { registrarAuditoria } from './auditoria.js';
 
 import { splitDoProcedimento } from './procedimentos.js';
@@ -105,12 +105,11 @@ export function initFinanceiro() {
                 };
 
                 try {
-                    await addDoc(collection(db, "financeiro"), dadosParaSalvar);
+                    await addDoc(collection(db, "financeiro"), { ...dadosParaSalvar, criadoEm: new Date().toISOString() });
                     showToast('Lançamento registrado com sucesso!', 'success');
                     await registrarAuditoria({ acao: 'Criação', modulo: 'Financeiro', descricao: `Novo lançamento (recepção): ${dadosParaSalvar.vinculo} - ${formatCurrency(dadosParaSalvar.valor)} (${dadosParaSalvar.tipo})` });
 
                     e.target.reset();
-                    await carregarFinanceiro();
                 } catch (error) {
                     console.error("Erro ao registrar lançamento (recepção): ", error);
                     showToast('Falha de conexão ao registrar. Tente novamente.', 'error');
@@ -276,7 +275,7 @@ export function initFinanceiro() {
                     showToast('Lançamento atualizado e DRE recalculada!', 'success');
                     await registrarAuditoria({ acao: 'Edição', modulo: 'Financeiro', descricao: `Lançamento atualizado: ${dadosParaSalvar.vinculo} - ${formatCurrency(dadosParaSalvar.valor)} (${dadosParaSalvar.tipo})` });
                 } else {
-                    await addDoc(collection(db, "financeiro"), dadosParaSalvar);
+                    await addDoc(collection(db, "financeiro"), { ...dadosParaSalvar, criadoEm: new Date().toISOString() });
                     showToast('Lançamento registrado na nuvem com sucesso.', 'success');
                     await registrarAuditoria({ acao: 'Criação', modulo: 'Financeiro', descricao: `Novo lançamento: ${dadosParaSalvar.vinculo} - ${formatCurrency(dadosParaSalvar.valor)} (${dadosParaSalvar.tipo})` });
                 }
@@ -284,8 +283,6 @@ export function initFinanceiro() {
                 modalFinanceiro.classList.remove('active');
                 e.target.reset();
                 lancamentoEmEdicaoId = null; 
-                
-                await carregarFinanceiro(); 
                 
             } catch (error) {
                 console.error("Erro no caixa: ", error);
@@ -313,7 +310,6 @@ export function initFinanceiro() {
                         await deleteDoc(doc(db, "financeiro", idFin));
                         showToast('Lançamento excluído com sucesso.', 'success');
                         await registrarAuditoria({ acao: 'Exclusão', modulo: 'Financeiro', descricao: `Lançamento excluído: ${lancExcluido ? lancExcluido.vinculo + ' - ' + formatCurrency(lancExcluido.valor) : idFin}` });
-                        await carregarFinanceiro();
                     } catch (error) {
                         console.error("Erro ao excluir: ", error);
                         showToast('Falha ao excluir lançamento.', 'error');
@@ -1002,13 +998,32 @@ function renderizarGraficoReceitaProfissional(lancamentosFiltrados) {
 
 // Filtra os lançamentos pela barra de pesquisa e pelo dropdown de meses
 // (usado tanto pela tabela quanto pela exportação em CSV, pra manter os dois sempre consistentes)
+// Momento em que o lançamento entrou no sistema (para ordenar do mais recente ao mais antigo).
+// Lançamentos antigos, sem carimbo, usam o horário do pagamento ou, por último, a data do caixa.
+function momentoDoLancamento(l) {
+    if (l.criadoEm) return l.criadoEm;
+    if (l.pagoEm) return l.pagoEm;
+    const dia = l.caixa || l.competencia || '';
+    return dia ? `${dia}T00:00:00` : '';
+}
+
+function dataBR(iso) {
+    return iso ? iso.split('-').reverse().join('/') : '';
+}
+
 function filtrarLancamentos(filtroTexto = '', filtroMes = 'todos') {
     return clinicaState.financeiro.lancamentos.filter(l => {
         const origem = (l.origem || 'manual').toLowerCase();
         const procedimentoNome = (l.procedimentoNome || '').toLowerCase();
-        const matchTexto = l.vinculo.toLowerCase().includes(filtroTexto) ||
-                           l.tipo.toLowerCase().includes(filtroTexto) ||
-                           l.pagamento.toLowerCase().includes(filtroTexto) ||
+        const matchTexto = !filtroTexto ||
+                           (l.vinculo || '').toLowerCase().includes(filtroTexto) ||
+                           (l.tipo || '').toLowerCase().includes(filtroTexto) ||
+                           (l.pagamento || '').toLowerCase().includes(filtroTexto) ||
+                           (l.status || '').toLowerCase().includes(filtroTexto) ||
+                           (l.profissionalNome || '').toLowerCase().includes(filtroTexto) ||
+                           dataBR(l.competencia).includes(filtroTexto) ||
+                           dataBR(l.caixa).includes(filtroTexto) ||
+                           String(l.valor ?? '').replace('.', ',').includes(filtroTexto) ||
                            origem.includes(filtroTexto) ||
                            procedimentoNome.includes(filtroTexto);
 
@@ -1037,7 +1052,13 @@ export function atualizarTabelaFinanceiro(filtroTexto = '', filtroMes = 'todos')
         filtrados = filtrados.filter(l => l.tipo === 'Receita');
     }
 
-    document.getElementById('finance-table-body').innerHTML = filtrados.slice().reverse().map(l => {
+    // Ordem: último lançamento primeiro, misturando entradas e saídas
+    filtrados = filtrados.slice().sort((a, b) => {
+        const cmp = momentoDoLancamento(b).localeCompare(momentoDoLancamento(a));
+        return cmp !== 0 ? cmp : String(b.id).localeCompare(String(a.id));
+    });
+
+    document.getElementById('finance-table-body').innerHTML = filtrados.map(l => {
         const isEntrada = l.tipo === 'Receita';
         const split = calcularSplitLancamento(l);
 
@@ -1071,6 +1092,7 @@ export function atualizarTabelaFinanceiro(filtroTexto = '', filtroMes = 'todos')
             <td>
                 <span style="font-weight: 600;">${l.competencia.split('-').reverse().join('/')}</span><br>
                 <small style="color: var(--text-light);"><i class="fa-solid fa-cash-register"></i> Caixa: ${l.caixa.split('-').reverse().join('/')}</small>
+                ${(l.criadoEm || l.pagoEm) ? `<br><small style="color: var(--text-light);"><i class="fa-regular fa-clock"></i> Lançado: ${new Date(l.criadoEm || l.pagoEm).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</small>` : ''}
             </td>
             <td>
                 <strong>${escapeHTML(l.vinculo)}</strong><br>
@@ -1571,51 +1593,83 @@ export async function exportarFinanceiroExcel() {
     });
 }
 
-export async function carregarFinanceiro() {
-    try {
-        const q = query(
-            collection(db, "financeiro"), 
-            where("clinicaId", "==", clinicaState.sessao.clinicaId)
-        );
-        const querySnapshot = await getDocs(q);
-        
+let unsubFinanceiro = null;
+let unsubFinanceiroClinicaId = null;
+
+function atualizarSeletorMesesFinanceiro() {
+    const mesSelect = document.getElementById('filtro-mes-financeiro');
+    if (!mesSelect) return;
+
+    const mesesUnicos = [...new Set(
+        clinicaState.financeiro.lancamentos
+            .filter(l => l.competencia)
+            .map(l => l.competencia.substring(0, 7))
+    )].sort().reverse();
+    const valorAtual = mesSelect.value;
+
+    mesSelect.innerHTML = '<option value="todos">Todos os Meses</option>' +
+        mesesUnicos.map(m => {
+            const [ano, mes] = m.split('-');
+            return `<option value="${m}">${mes}/${ano}</option>`;
+        }).join('');
+
+    // Mantém o filtro aplicado, se ainda existir na lista nova
+    if ([...mesSelect.options].some(o => o.value === valorAtual)) {
+        mesSelect.value = valorAtual;
+    }
+}
+
+// Tempo real: lê a coleção uma vez e depois recebe só as mudanças.
+// Chamar de novo para a mesma clínica não abre um segundo ouvinte.
+export function carregarFinanceiro() {
+    const clinicaId = clinicaState.sessao.clinicaId;
+    if (unsubFinanceiro && unsubFinanceiroClinicaId === clinicaId) return;
+
+    pararTempoRealFinanceiro();
+
+    const q = query(
+        collection(db, "financeiro"),
+        where("clinicaId", "==", clinicaId)
+    );
+
+    unsubFinanceiroClinicaId = clinicaId;
+    unsubFinanceiro = onSnapshot(q, (querySnapshot) => {
         clinicaState.financeiro.lancamentos = [];
-                  
-        querySnapshot.forEach((doc) => {
+        querySnapshot.forEach((docSnap) => {
             clinicaState.financeiro.lancamentos.push({
-                ...doc.data(),
-                id: String(doc.id)
+                ...docSnap.data(),
+                id: String(docSnap.id)
             });
         });
 
-        // Alimenta automaticamente o seletor de meses com as datas que existem no banco!
-        const mesSelect = document.getElementById('filtro-mes-financeiro');
-        if (mesSelect) {
-            const mesesUnicos = [...new Set(clinicaState.financeiro.lancamentos.map(l => l.competencia.substring(0, 7)))].sort().reverse();
-            const valorAtual = mesSelect.value; 
-            
-            mesSelect.innerHTML = '<option value="todos">Todos os Meses</option>' +
-                mesesUnicos.map(m => {
-                    const [ano, mes] = m.split('-');
-                    return `<option value="${m}">${mes}/${ano}</option>`;
-                }).join('');
-                
-            // Mantém o filtro aplicado, se ainda existir na lista nova
-            if ([...mesSelect.options].some(o => o.value === valorAtual)) {
-                mesSelect.value = valorAtual;
-            }
-        }
-        
-        // Renderiza tudo e atualiza os dashboards
+        atualizarSeletorMesesFinanceiro();
+
         const barraPesquisa = document.getElementById('search-financeiro');
-        const searchTexto = barraPesquisa ? barraPesquisa.value.toLowerCase() : '';
-        
-        atualizarTabelaFinanceiro(searchTexto, mesSelect ? mesSelect.value : 'todos');
-        calcularDRE(); 
-             
-    } catch (error) {
-        console.error("Erro ao buscar dados financeiros: ", error);
-        showToast('Erro ao carregar o livro caixa.', 'error');
+        const mesSelect = document.getElementById('filtro-mes-financeiro');
+        atualizarTabelaFinanceiro(
+            barraPesquisa ? barraPesquisa.value.toLowerCase() : '',
+            mesSelect ? mesSelect.value : 'todos'
+        );
+        calcularDRE();
+
+        // Se o Fechamento do Dia estiver aberto, atualiza ele também
+        const modalFechamento = document.getElementById('modal-fechamento-diario');
+        if (modalFechamento?.classList.contains('active')) {
+            const dataIso = document.getElementById('fechamento-data')?.value;
+            const profId = document.getElementById('fechamento-profissional')?.value || 'todos';
+            if (dataIso) renderizarFechamentoDiario(dataIso, profId);
+        }
+    }, (error) => {
+        console.error("Erro no tempo real do financeiro: ", error);
+        showToast('Erro ao sincronizar o livro caixa.', 'error');
+    });
+}
+
+export function pararTempoRealFinanceiro() {
+    if (unsubFinanceiro) {
+        unsubFinanceiro();
+        unsubFinanceiro = null;
+        unsubFinanceiroClinicaId = null;
     }
 }
 
@@ -1627,14 +1681,27 @@ function initFechamentoDiario() {
     const modal = document.getElementById('modal-fechamento-diario');
     const btnFechar = document.getElementById('btn-close-fechamento-diario');
     const inputData = document.getElementById('fechamento-data');
+    const selectProf = document.getElementById('fechamento-profissional');
     const btnImprimir = document.getElementById('btn-imprimir-fechamento');
 
     if (!btnAbrir || !modal) return;
 
+    const atualizarFechamentoAtual = () => {
+        if (!inputData?.value) return;
+        renderizarFechamentoDiario(inputData.value, selectProf?.value || 'todos');
+    };
+
     btnAbrir.addEventListener('click', () => {
         const hoje = new Date().toISOString().split('T')[0];
         if (inputData) inputData.value = hoje;
-        renderizarFechamentoDiario(hoje);
+
+        if (selectProf) {
+            selectProf.innerHTML = '<option value="todos">Todos os Profissionais</option>' +
+                clinicaState.profissionais.map(p => `<option value="${p.id}">${escapeHTML(p.nome)}</option>`).join('');
+            selectProf.value = 'todos';
+        }
+
+        renderizarFechamentoDiario(hoje, 'todos');
         modal.classList.add('active');
     });
 
@@ -1642,22 +1709,25 @@ function initFechamentoDiario() {
         btnFechar.addEventListener('click', () => modal.classList.remove('active'));
     }
 
-    if (inputData) {
-        inputData.addEventListener('change', (e) => {
-            if (e.target.value) renderizarFechamentoDiario(e.target.value);
-        });
-    }
+    if (inputData) inputData.addEventListener('change', atualizarFechamentoAtual);
+    if (selectProf) selectProf.addEventListener('change', atualizarFechamentoAtual);
 
     if (btnImprimir) {
-        btnImprimir.addEventListener('click', () => imprimirFechamentoDiario(inputData?.value));
+        btnImprimir.addEventListener('click', () => {
+            imprimirFechamentoDiario(inputData?.value, selectProf?.value || 'todos');
+        });
     }
 }
 
-function obterDadosFechamentoDiario(dataIso) {
-    // Considera lançamentos liquidados cuja data de CAIXA (ou competência) seja o dia escolhido
-    const doDia = (clinicaState.financeiro.lancamentos || []).filter(l =>
-        l.status === 'Recebido/Pago' && (l.caixa === dataIso || (!l.caixa && l.competencia === dataIso))
-    );
+function obterDadosFechamentoDiario(dataIso, profId = 'todos') {
+    const doDia = (clinicaState.financeiro.lancamentos || []).filter(l => {
+        const mesmaData = l.status === 'Recebido/Pago' && (l.caixa === dataIso || (!l.caixa && l.competencia === dataIso));
+        if (!mesmaData) return false;
+        if (profId !== 'todos') {
+            return String(l.profissionalId || '') === String(profId);
+        }
+        return true;
+    });
 
     let totalBruto = 0;
     let totalRepasses = 0;
@@ -1698,10 +1768,9 @@ function obterDadosFechamentoDiario(dataIso) {
     return { totalBruto, totalRepasses, totalSaidas, saldoLiquidoClinica, porPagamento, porProfissional, saidas };
 }
 
-function renderizarFechamentoDiario(dataIso) {
-    const dados = obterDadosFechamentoDiario(dataIso);
+function renderizarFechamentoDiario(dataIso, profId = 'todos') {
+    const dados = obterDadosFechamentoDiario(dataIso, profId);
 
-    // 1. Cards do topo
     const elCards = document.getElementById('fechamento-cards');
     if (elCards) {
         elCards.innerHTML = `
@@ -1724,12 +1793,11 @@ function renderizarFechamentoDiario(dataIso) {
         `;
     }
 
-    // 2. Formas de pagamento
     const elPag = document.getElementById('fechamento-pagamentos');
     if (elPag) {
         const entradasPag = Object.entries(dados.porPagamento);
         elPag.innerHTML = entradasPag.length === 0
-            ? '<span style="color:var(--text-light); font-size:0.88rem;">Nenhuma entrada registrada nesta data.</span>'
+            ? '<span style="color:var(--text-light); font-size:0.88rem;">Nenhuma entrada registrada para este filtro.</span>'
             : entradasPag.map(([forma, val]) => `
                 <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:8px 14px; font-size:0.86rem;">
                     <span style="color:var(--text-light);">${escapeHTML(forma)}:</span>
@@ -1738,12 +1806,11 @@ function renderizarFechamentoDiario(dataIso) {
             `).join('');
     }
 
-    // 3. Tabela por Profissional
     const elProf = document.getElementById('fechamento-profissionais-body');
     if (elProf) {
         const linhas = Object.entries(dados.porProfissional).sort((a, b) => b[1].bruto - a[1].bruto);
         elProf.innerHTML = linhas.length === 0
-            ? '<tr><td colspan="6" style="text-align:center; color:var(--text-light); padding:16px;">Nenhum atendimento liquidado nesta data.</td></tr>'
+            ? '<tr><td colspan="6" style="text-align:center; color:var(--text-light); padding:16px;">Nenhum atendimento liquidado para este filtro.</td></tr>'
             : linhas.map(([nome, p]) => `
                 <tr>
                     <td><strong>${escapeHTML(nome)}</strong></td>
@@ -1756,11 +1823,10 @@ function renderizarFechamentoDiario(dataIso) {
             `).join('');
     }
 
-    // 4. Saídas do dia
     const elSaidas = document.getElementById('fechamento-saidas-lista');
     if (elSaidas) {
         elSaidas.innerHTML = dados.saidas.length === 0
-            ? '<p style="color:var(--text-light); font-size:0.88rem;">Nenhuma saída/despesa registrada nesta data.</p>'
+            ? '<p style="color:var(--text-light); font-size:0.88rem;">Nenhuma saída/despesa registrada para este filtro.</p>'
             : dados.saidas.map(s => `
                 <div class="dash-list-item" style="padding:8px 12px;">
                     <span><strong>${escapeHTML(s.vinculo)}</strong> <small style="color:var(--text-light);">(${escapeHTML(s.tipo)} · ${escapeHTML(s.pagamento)})</small></span>
@@ -1770,10 +1836,13 @@ function renderizarFechamentoDiario(dataIso) {
     }
 }
 
-function imprimirFechamentoDiario(dataIso) {
+function imprimirFechamentoDiario(dataIso, profId = 'todos') {
     if (!dataIso) return;
-    const dados = obterDadosFechamentoDiario(dataIso);
+    const dados = obterDadosFechamentoDiario(dataIso, profId);
     const dataBr = dataIso.split('-').reverse().join('/');
+    const profObj = profId !== 'todos' ? clinicaState.profissionais.find(p => String(p.id) === String(profId)) : null;
+    const tituloFiltro = profObj ? ` — ${profObj.nome}` : ' — Geral (Todos os Profissionais)';
+
     const linhasProf = Object.entries(dados.porProfissional)
         .sort((a, b) => b[1].bruto - a[1].bruto)
         .map(([nome, p]) => `
@@ -1799,7 +1868,7 @@ function imprimirFechamentoDiario(dataIso) {
         <html lang="pt-BR">
         <head>
             <meta charset="UTF-8">
-            <title>Fechamento de Caixa — ${dataBr}</title>
+            <title>Fechamento de Caixa — ${dataBr}${escapeHTML(tituloFiltro)}</title>
             <style>
                 body { font-family: Arial, sans-serif; padding: 24px; color: #1B262C; }
                 h1 { font-size: 18px; margin: 0 0 4px; color: #0F4C75; }
@@ -1815,7 +1884,7 @@ function imprimirFechamentoDiario(dataIso) {
             </style>
         </head>
         <body>
-            <h1>Fechamento de Caixa Diário — ${dataBr}</h1>
+            <h1>Fechamento de Caixa Diário — ${dataBr}${escapeHTML(tituloFiltro)}</h1>
             <div class="sub">Emitido em ${new Date().toLocaleString('pt-BR')} por ${escapeHTML(clinicaState.sessao.nome || 'Administrador')}</div>
             <div class="grid">
                 <div class="box"><small>Entradas (Bruto)</small><strong>${formatCurrency(dados.totalBruto)}</strong></div>

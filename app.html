@@ -69,7 +69,7 @@
                 <button class="menu-btn" data-target="dashboard"><i class="fa-solid fa-chart-line"></i> Dashboard & DRE</button>
                 <button class="menu-btn" data-target="agenda"><i class="fa-regular fa-calendar-days"></i> Agenda</button>
                 <button class="menu-btn" data-target="pacientes"><i class="fa-solid fa-users"></i> Pacientes & Prontuários</button>
-                <button class="menu-btn" data-target="estoque"><i class="fa-solid fa-boxes-stacked"></i> Estoque (Anvisa)</button>
+                <button class="menu-btn" data-target="estoque" data-feature="estoqueAnvisa"><i class="fa-solid fa-boxes-stacked"></i> Estoque (Anvisa)</button>
                 <button class="menu-btn" data-target="financeiro"><i class="fa-solid fa-cash-register"></i> Financeiro</button>
                 <button class="menu-btn" data-target="notificacoes">
                     <i class="fa-solid fa-bell"></i> Notificações
@@ -2086,9 +2086,14 @@
         </header>
         <div class="modal-body">
             <div class="flex-row gap-15 mb-20" style="align-items: center; justify-content: space-between; flex-wrap: wrap;">
-                <div class="flex-row gap-10" style="align-items: center;">
-                    <label for="fechamento-data" style="font-weight: 600;">Data do Fechamento:</label>
-                    <input type="date" id="fechamento-data" class="input-premium" style="max-width: 180px;">
+                <div class="flex-row gap-10" style="align-items: center; flex-wrap: wrap;">
+                    <label for="fechamento-data" style="font-weight: 600;">Data:</label>
+                    <input type="date" id="fechamento-data" class="input-premium" style="max-width: 170px;">
+
+                    <label for="fechamento-profissional" style="font-weight: 600;">Profissional:</label>
+                    <select id="fechamento-profissional" class="input-premium" style="max-width: 240px;">
+                        <option value="todos">Todos os Profissionais</option>
+                    </select>
                 </div>
                 <button type="button" class="btn-secondary" id="btn-imprimir-fechamento">
                     <i class="fa-solid fa-print"></i> Imprimir Fechamento

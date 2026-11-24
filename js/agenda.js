@@ -13,6 +13,7 @@ let periodoAtual = 'dia';
 let filtroStatusAtual = 'todos';
 let pagamentoAdicionalConfirmado = false;
 let datasEscalaPendentes = [];
+let itensProcedimentoAgenda = [];
 const buscasAgenda = new WeakMap();
 
 const NOMES_MES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -84,6 +85,7 @@ function montarDadosFinanceiroDoAgendamento(agendamento, formaPagamento, valorPa
         pacienteNome: agendamento.pacNome || null,
         procedimentoId: agendamento.procedimentoId || null,
         procedimentoNome: agendamento.procedimentoNome || null,
+        itens: agendamento.itens || [],
         dataConsulta: agendamento.data || null,
         horaConsulta: agendamento.hora || null,
         pagoEm: agoraIso,
@@ -224,6 +226,61 @@ export async function abrirModalPagamento(idAgendamento, notificacaoId = null) {
     }
 
     modal.classList.add('active');
+}
+
+function renderizarItensProcedimentoAgenda() {
+    const container = document.getElementById('agenda-itens-selecionados');
+    const campoValor = document.getElementById('agenda-valor');
+    if (!container) return;
+
+    if (itensProcedimentoAgenda.length === 0) {
+        container.style.display = 'none';
+        container.innerHTML = '';
+        if (campoValor) campoValor.value = formatCurrency(obterValorProcedimentoSelecionado());
+        return;
+    }
+
+    container.style.display = 'flex';
+    container.innerHTML = itensProcedimentoAgenda.map((item, idx) => `
+        <span class="anexo-chip">
+            <span>${escapeHTML(item.nome)} (<strong>${formatCurrency(item.valor)}</strong>)</span>
+            <button type="button" class="btn-remover-item-agenda" data-idx="${idx}" data-sem-cooldown title="Remover" style="background:none; border:none; color:#dc3545; cursor:pointer; margin-left:6px;">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </span>
+    `).join('');
+
+    const total = itensProcedimentoAgenda.reduce((soma, it) => soma + Number(it.valor || 0), 0);
+    if (campoValor) campoValor.value = formatCurrency(total);
+}
+
+function adicionarItemProcedimentoAtual() {
+    const tipoAtendimento = document.getElementById('agenda-tipo')?.value;
+    const selectProcedimento = document.getElementById('agenda-procedimento');
+    const profId = document.getElementById('agenda-profissional')?.value || '';
+    if (!selectProcedimento || !selectProcedimento.value) {
+        return showToast('Selecione um procedimento antes de adicionar.', 'warning');
+    }
+
+    const itemId = selectProcedimento.value;
+    const isPacote = tipoAtendimento === 'pacote';
+    const obj = isPacote
+        ? clinicaState.pacotes.find(p => String(p.id) === String(itemId))
+        : clinicaState.procedimentos.find(p => String(p.id) === String(itemId));
+
+    if (!obj) return;
+
+    const valor = isPacote
+        ? Number(obj.valorEspecie ?? obj.valorFechado ?? 0)
+        : valorDoProcedimentoParaProfissional(itemId, profId, 'Dinheiro');
+
+    itensProcedimentoAgenda.push({
+        id: String(obj.id),
+        nome: obj.nome,
+        valor
+    });
+
+    renderizarItensProcedimentoAgenda();
 }
 
 function obterValorProcedimentoSelecionado() {
@@ -906,6 +963,18 @@ export function initAgenda() {
         });
     }
 
+    document.getElementById('btn-add-procedimento-agenda')?.addEventListener('click', adicionarItemProcedimentoAtual);
+
+    document.getElementById('agenda-itens-selecionados')?.addEventListener('click', (e) => {
+        const btnRem = e.target.closest('.btn-remover-item-agenda');
+        if (!btnRem) return;
+        const idx = parseInt(btnRem.getAttribute('data-idx'), 10);
+        if (!Number.isNaN(idx)) {
+            itensProcedimentoAgenda.splice(idx, 1);
+            renderizarItensProcedimentoAgenda();
+        }
+    });
+
     const modalBloqueio = document.getElementById('modal-bloqueio');
     const selectTipoBloqueio = document.getElementById('bloqueio-tipo');
     const grupoHorarioEspecifico = document.getElementById('bloqueio-horario-especifico-group');
@@ -1108,24 +1177,32 @@ export function initAgenda() {
             const horaAgendamento = document.getElementById('agenda-hora').value;
             const tipoAtendimento = document.getElementById('agenda-tipo').value;
             const selectProcedimento = document.getElementById('agenda-procedimento');
-            const itemSelecionadoId = selectProcedimento ? selectProcedimento.value : '';
-
             const isPacote = tipoAtendimento === 'pacote';
-            const itemObj = isPacote
-                ? clinicaState.pacotes.find(p => String(p.id) === String(itemSelecionadoId))
-                : clinicaState.procedimentos.find(p => String(p.id) === String(itemSelecionadoId));
 
-            if (!itemSelecionadoId || !itemObj) {
-                showToast(isPacote ? 'Selecione um pacote válido.' : 'Selecione um procedimento válido.', 'error');
-                return;
+            let itensFinais = [...itensProcedimentoAgenda];
+            if (itensFinais.length === 0) {
+                const itemSelecionadoId = selectProcedimento ? selectProcedimento.value : '';
+                const itemObj = isPacote
+                    ? clinicaState.pacotes.find(p => String(p.id) === String(itemSelecionadoId))
+                    : clinicaState.procedimentos.find(p => String(p.id) === String(itemSelecionadoId));
+
+                if (!itemSelecionadoId || !itemObj) {
+                    showToast(isPacote ? 'Selecione um pacote válido.' : 'Selecione um procedimento válido.', 'error');
+                    return;
+                }
+                itensFinais.push({
+                    id: String(itemObj.id),
+                    nome: itemObj.nome,
+                    valor: obterValorProcedimentoSelecionado()
+                });
             }
 
-            const procedimentoId = itemSelecionadoId;
-            const procedimento = itemObj;
-            const valorAtendimento = obterValorProcedimentoSelecionado();
+            const procedimentoId = itensFinais[0].id;
+            const procedimentoNome = itensFinais.map(i => i.nome).join(' + ');
+            const valorAtendimento = itensFinais.reduce((soma, i) => soma + Number(i.valor || 0), 0);
             const paciente = clinicaState.pacientes.find(p => String(p.id) === String(pacId));
 
-            if (tipoAtendimento === 'procedimento_avulso' && (!procedimentoId || !procedimento)) {
+            if (tipoAtendimento === 'procedimento_avulso' && !procedimentoId) {
                 showToast('Selecione um procedimento válido para o atendimento avulso.', 'error');
                 return;
             }
@@ -1220,10 +1297,11 @@ export function initAgenda() {
                     data: dataAgendamento,
                     hora: horaAgendamento,
                     tipo: tipoAtendimento === 'procedimento_avulso' ? 'Procedimento avulso' : 'Sessão de Pacote',
-                    procedimentoId: procedimentoId || '',
-                    procedimentoNome: procedimento ? procedimento.nome : (tipoAtendimento === 'procedimento_avulso' ? 'Procedimento' : 'Sessão de Pacote'),
+                    procedimentoId: procedimentoId,
+                    procedimentoNome: procedimentoNome,
+                    itens: itensFinais,
                     valorAtendimento: valorAtendimento,
-                    statusPagamento: tipoAtendimento === 'procedimento_avulso' ? 'pendente' : 'nao_aplica',
+                    statusPagamento: valorAtendimento > 0 ? 'pendente' : 'nao_aplica',
                     status: 'agendado', 
                     clinicaId: clinicaState.sessao.clinicaId
                 });
@@ -1287,8 +1365,18 @@ export function initAgenda() {
         selectFormaPagamento.addEventListener('change', () => {
             if (!agendamentoIdParaAtualizar) return;
             const ag = clinicaState.agenda.agendamentos.find(a => String(a.id) === String(agendamentoIdParaAtualizar));
-            if (!ag || !ag.procedimentoId) return;
-            const novoValor = valorDoProcedimentoParaProfissional(ag.procedimentoId, ag.profId, selectFormaPagamento.value);
+            if (!ag) return;
+
+            let novoValor = 0;
+            if (Array.isArray(ag.itens) && ag.itens.length > 0) {
+                novoValor = ag.itens.reduce((soma, it) => {
+                    const v = valorDoProcedimentoParaProfissional(it.id, ag.profId, selectFormaPagamento.value);
+                    return soma + (v > 0 ? v : Number(it.valor || 0));
+                }, 0);
+            } else if (ag.procedimentoId) {
+                novoValor = valorDoProcedimentoParaProfissional(ag.procedimentoId, ag.profId, selectFormaPagamento.value);
+            }
+
             if (novoValor > 0) {
                 const inputValor = document.getElementById('pagamento-valor');
                 if (inputValor) {
@@ -1550,6 +1638,9 @@ export function abrirModalAgendamento(hora = '', profId = '', data = '') {
     const selPac = document.getElementById('agenda-paciente');
     const selProf = document.getElementById('agenda-profissional');
     const inputDataAgenda = document.getElementById('data-agenda');
+
+    itensProcedimentoAgenda = [];
+    renderizarItensProcedimentoAgenda();
     
     let profsPermitidos = clinicaState.profissionais;
     if (clinicaState.sessao.perfil === 'Doutor(a)') {

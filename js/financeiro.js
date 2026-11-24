@@ -6,14 +6,28 @@ import { registrarAuditoria } from './auditoria.js';
 
 import { splitDoProcedimento } from './procedimentos.js';
 
-// Helper central: calcula quanto fica para o profissional e quanto fica para a clínica
 function calcularSplitLancamento(l) {
     if (l.tipo !== 'Receita') {
         return { temSplit: false, valorProfissional: 0, valorClinica: 0, percentualProfissional: 0 };
     }
+
+    // Suporte nativo para múltiplos procedimentos no mesmo atendimento (futuro)
+    if (Array.isArray(l.itens) && l.itens.length > 0) {
+        let totalProf = 0;
+        let totalClinica = 0;
+        l.itens.forEach(item => {
+            const s = splitDoProcedimento(item.id, item.valor);
+            totalProf += s.valorProfissional;
+            totalClinica += s.valorClinica;
+        });
+        const percMedio = l.valor > 0 ? Math.round((totalProf / l.valor) * 100) : 0;
+        return { temSplit: totalProf > 0 && totalClinica > 0, valorProfissional: totalProf, valorClinica: totalClinica, percentualProfissional: percMedio };
+    }
+
     if (!l.procedimentoId) {
         return { temSplit: false, valorProfissional: 0, valorClinica: Number(l.valor) || 0, percentualProfissional: 0 };
     }
+
     const split = splitDoProcedimento(l.procedimentoId, l.valor);
     const temSplit = split.valorProfissional > 0 && split.valorClinica > 0;
     return { temSplit, ...split };
@@ -52,6 +66,8 @@ export function initFinanceiro() {
         { id: 'fin-stat-despesas', label: 'Saídas (Despesas)', initial: 'R$ 0,00', variant: 'danger', valueClass: 'negativo', compact: true },
         { id: 'fin-stat-saldo', label: 'Saldo Líquido da Clínica', initial: 'R$ 0,00', variant: 'primary', valueClass: 'total', compact: true }
     ]);
+
+    initFechamentoDiario();
 
     // ==========================================
     // FORMULÁRIO SIMPLIFICADO DA RECEPÇÃO
@@ -1601,4 +1617,225 @@ export async function carregarFinanceiro() {
         console.error("Erro ao buscar dados financeiros: ", error);
         showToast('Erro ao carregar o livro caixa.', 'error');
     }
+}
+
+// ========================================================
+// FECHAMENTO DE CAIXA DIÁRIO (Clínica x Profissionais)
+// ========================================================
+function initFechamentoDiario() {
+    const btnAbrir = document.getElementById('btn-fechamento-diario');
+    const modal = document.getElementById('modal-fechamento-diario');
+    const btnFechar = document.getElementById('btn-close-fechamento-diario');
+    const inputData = document.getElementById('fechamento-data');
+    const btnImprimir = document.getElementById('btn-imprimir-fechamento');
+
+    if (!btnAbrir || !modal) return;
+
+    btnAbrir.addEventListener('click', () => {
+        const hoje = new Date().toISOString().split('T')[0];
+        if (inputData) inputData.value = hoje;
+        renderizarFechamentoDiario(hoje);
+        modal.classList.add('active');
+    });
+
+    if (btnFechar) {
+        btnFechar.addEventListener('click', () => modal.classList.remove('active'));
+    }
+
+    if (inputData) {
+        inputData.addEventListener('change', (e) => {
+            if (e.target.value) renderizarFechamentoDiario(e.target.value);
+        });
+    }
+
+    if (btnImprimir) {
+        btnImprimir.addEventListener('click', () => imprimirFechamentoDiario(inputData?.value));
+    }
+}
+
+function obterDadosFechamentoDiario(dataIso) {
+    // Considera lançamentos liquidados cuja data de CAIXA (ou competência) seja o dia escolhido
+    const doDia = (clinicaState.financeiro.lancamentos || []).filter(l =>
+        l.status === 'Recebido/Pago' && (l.caixa === dataIso || (!l.caixa && l.competencia === dataIso))
+    );
+
+    let totalBruto = 0;
+    let totalRepasses = 0;
+    let totalSaidas = 0;
+    const porPagamento = {};
+    const porProfissional = {};
+    const saidas = [];
+
+    doDia.forEach(l => {
+        if (l.tipo === 'Receita') {
+            const valor = Number(l.valor) || 0;
+            const split = calcularSplitLancamento(l);
+
+            totalBruto += valor;
+            if (split.temSplit) totalRepasses += split.valorProfissional;
+
+            const forma = l.pagamento || 'Outros';
+            porPagamento[forma] = (porPagamento[forma] || 0) + valor;
+
+            const profChave = l.profissionalNome || 'Sem profissional vinculado (Clínica)';
+            if (!porProfissional[profChave]) {
+                porProfissional[profChave] = { qtd: 0, procedimentos: [], bruto: 0, repasse: 0, clinica: 0 };
+            }
+            const p = porProfissional[profChave];
+            p.qtd += 1;
+            p.bruto += valor;
+            p.repasse += split.temSplit ? split.valorProfissional : 0;
+            p.clinica += split.valorClinica;
+            p.procedimentos.push(l.procedimentoNome || l.vinculo || 'Atendimento');
+        } else {
+            const valor = Number(l.valor) || 0;
+            totalSaidas += valor;
+            saidas.push(l);
+        }
+    });
+
+    const saldoLiquidoClinica = totalBruto - totalRepasses - totalSaidas;
+    return { totalBruto, totalRepasses, totalSaidas, saldoLiquidoClinica, porPagamento, porProfissional, saidas };
+}
+
+function renderizarFechamentoDiario(dataIso) {
+    const dados = obterDadosFechamentoDiario(dataIso);
+
+    // 1. Cards do topo
+    const elCards = document.getElementById('fechamento-cards');
+    if (elCards) {
+        elCards.innerHTML = `
+            <div class="card card-info card-success card-compact">
+                <h3>Entradas (Bruto)</h3>
+                <p class="big-number positivo">${formatCurrency(dados.totalBruto)}</p>
+            </div>
+            <div class="card card-info card-warning card-compact">
+                <h3>Repasses Profissionais</h3>
+                <p class="big-number warning">${formatCurrency(dados.totalRepasses)}</p>
+            </div>
+            <div class="card card-info card-danger card-compact">
+                <h3>Saídas do Dia</h3>
+                <p class="big-number negativo">${formatCurrency(dados.totalSaidas)}</p>
+            </div>
+            <div class="card card-info card-primary card-compact">
+                <h3>Líquido da Clínica</h3>
+                <p class="big-number total" style="color:${dados.saldoLiquidoClinica < 0 ? '#dc3545' : 'var(--primary-color)'};">${formatCurrency(dados.saldoLiquidoClinica)}</p>
+            </div>
+        `;
+    }
+
+    // 2. Formas de pagamento
+    const elPag = document.getElementById('fechamento-pagamentos');
+    if (elPag) {
+        const entradasPag = Object.entries(dados.porPagamento);
+        elPag.innerHTML = entradasPag.length === 0
+            ? '<span style="color:var(--text-light); font-size:0.88rem;">Nenhuma entrada registrada nesta data.</span>'
+            : entradasPag.map(([forma, val]) => `
+                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:8px 14px; font-size:0.86rem;">
+                    <span style="color:var(--text-light);">${escapeHTML(forma)}:</span>
+                    <strong style="color:var(--primary-color); margin-left:6px;">${formatCurrency(val)}</strong>
+                </div>
+            `).join('');
+    }
+
+    // 3. Tabela por Profissional
+    const elProf = document.getElementById('fechamento-profissionais-body');
+    if (elProf) {
+        const linhas = Object.entries(dados.porProfissional).sort((a, b) => b[1].bruto - a[1].bruto);
+        elProf.innerHTML = linhas.length === 0
+            ? '<tr><td colspan="6" style="text-align:center; color:var(--text-light); padding:16px;">Nenhum atendimento liquidado nesta data.</td></tr>'
+            : linhas.map(([nome, p]) => `
+                <tr>
+                    <td><strong>${escapeHTML(nome)}</strong></td>
+                    <td>${p.qtd}</td>
+                    <td><small>${escapeHTML(p.procedimentos.join(', '))}</small></td>
+                    <td class="positivo"><strong>${formatCurrency(p.bruto)}</strong></td>
+                    <td style="color:#b45309; font-weight:600;">${formatCurrency(p.repasse)}</td>
+                    <td style="color:var(--primary-color); font-weight:700;">${formatCurrency(p.clinica)}</td>
+                </tr>
+            `).join('');
+    }
+
+    // 4. Saídas do dia
+    const elSaidas = document.getElementById('fechamento-saidas-lista');
+    if (elSaidas) {
+        elSaidas.innerHTML = dados.saidas.length === 0
+            ? '<p style="color:var(--text-light); font-size:0.88rem;">Nenhuma saída/despesa registrada nesta data.</p>'
+            : dados.saidas.map(s => `
+                <div class="dash-list-item" style="padding:8px 12px;">
+                    <span><strong>${escapeHTML(s.vinculo)}</strong> <small style="color:var(--text-light);">(${escapeHTML(s.tipo)} · ${escapeHTML(s.pagamento)})</small></span>
+                    <strong class="negativo">- ${formatCurrency(s.valor)}</strong>
+                </div>
+            `).join('');
+    }
+}
+
+function imprimirFechamentoDiario(dataIso) {
+    if (!dataIso) return;
+    const dados = obterDadosFechamentoDiario(dataIso);
+    const dataBr = dataIso.split('-').reverse().join('/');
+    const linhasProf = Object.entries(dados.porProfissional)
+        .sort((a, b) => b[1].bruto - a[1].bruto)
+        .map(([nome, p]) => `
+            <tr>
+                <td>${escapeHTML(nome)}</td>
+                <td style="text-align:center;">${p.qtd}</td>
+                <td>${escapeHTML(p.procedimentos.join(', '))}</td>
+                <td style="text-align:right;">${formatCurrency(p.bruto)}</td>
+                <td style="text-align:right;">${formatCurrency(p.repasse)}</td>
+                <td style="text-align:right;"><strong>${formatCurrency(p.clinica)}</strong></td>
+            </tr>
+        `).join('') || '<tr><td colspan="6" style="text-align:center;">Sem atendimentos</td></tr>';
+
+    const linhasPag = Object.entries(dados.porPagamento)
+        .map(([forma, val]) => `<li><strong>${escapeHTML(forma)}:</strong> ${formatCurrency(val)}</li>`)
+        .join('') || '<li>Nenhuma entrada</li>';
+
+    const win = window.open('', '_blank');
+    if (!win) return showToast('Permita pop-ups para imprimir o fechamento.', 'warning');
+
+    win.document.write(`
+        <!DOCTYPE html>
+        <html lang="pt-BR">
+        <head>
+            <meta charset="UTF-8">
+            <title>Fechamento de Caixa — ${dataBr}</title>
+            <style>
+                body { font-family: Arial, sans-serif; padding: 24px; color: #1B262C; }
+                h1 { font-size: 18px; margin: 0 0 4px; color: #0F4C75; }
+                .sub { font-size: 12px; color: #6C757D; margin-bottom: 18px; }
+                .grid { display: flex; gap: 12px; margin-bottom: 18px; }
+                .box { flex: 1; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; }
+                .box small { display: block; color: #64748b; font-size: 11px; }
+                .box strong { font-size: 16px; }
+                table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+                th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; }
+                th { background: #f1f5f9; }
+                ul { padding-left: 18px; font-size: 13px; }
+            </style>
+        </head>
+        <body>
+            <h1>Fechamento de Caixa Diário — ${dataBr}</h1>
+            <div class="sub">Emitido em ${new Date().toLocaleString('pt-BR')} por ${escapeHTML(clinicaState.sessao.nome || 'Administrador')}</div>
+            <div class="grid">
+                <div class="box"><small>Entradas (Bruto)</small><strong>${formatCurrency(dados.totalBruto)}</strong></div>
+                <div class="box"><small>Repasses Profissionais</small><strong>${formatCurrency(dados.totalRepasses)}</strong></div>
+                <div class="box"><small>Saídas / Despesas</small><strong>${formatCurrency(dados.totalSaidas)}</strong></div>
+                <div class="box"><small>Saldo Líquido Clínica</small><strong>${formatCurrency(dados.saldoLiquidoClinica)}</strong></div>
+            </div>
+            <h3>Entradas por Forma de Pagamento</h3>
+            <ul>${linhasPag}</ul>
+            <h3>Produção por Profissional</h3>
+            <table>
+                <thead>
+                    <tr><th>Profissional</th><th>Qtd</th><th>Procedimentos</th><th>Bruto</th><th>Repasse Prof.</th><th>Parte Clínica</th></tr>
+                </thead>
+                <tbody>${linhasProf}</tbody>
+            </table>
+        </body>
+        </html>
+    `);
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 250);
 }

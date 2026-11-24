@@ -1046,6 +1046,9 @@
                                     <option value="todos">Todos os Meses</option>
                                     <!-- Os meses serão gerados automaticamente pelo JavaScript -->
                                 </select>
+                                <button type="button" class="btn-primary" id="btn-fechamento-diario" title="Conferir fechamento de caixa do dia (Clínica x Profissionais)">
+                                    <i class="fa-solid fa-cash-register"></i> Fechamento do Dia
+                                </button>
                                 <button type="button" class="btn-secondary" id="btn-exportar-financeiro" title="Exportar relatório Excel (receita por forma de pagamento, despesas e gráfico)">
                                     <i class="fa-solid fa-file-excel"></i> Exportar Excel
                                 </button>
@@ -1661,10 +1664,17 @@
                     </div>
 
                     <div id="grupo-agenda-procedimento" class="form-group full-width">
-                        <label>Procedimento *</label>
-                        <select id="agenda-procedimento" class="input-premium" required>
-                            <option value="">Selecione o procedimento...</option>
-                        </select>
+                        <label>Procedimento(s) *</label>
+                        <div class="flex-row gap-10" style="align-items: center;">
+                            <select id="agenda-procedimento" class="input-premium" style="flex: 1;">
+                                <option value="">Selecione o procedimento...</option>
+                            </select>
+                            <button type="button" class="btn-secondary btn-compact" id="btn-add-procedimento-agenda" data-sem-cooldown title="Adicionar este procedimento ao atendimento">
+                                <i class="fa-solid fa-plus"></i> Adicionar
+                            </button>
+                        </div>
+                        <div id="agenda-itens-selecionados" class="anexos-lista mt-10" style="display: none;"></div>
+                        <small style="color: var(--text-light);">Para mais de um procedimento na mesma consulta, selecione e clique em "+ Adicionar".</small>
                     </div>
 
                     <div class="form-group full-width">
@@ -2064,6 +2074,64 @@
             </div>
         </div>
     </div>
+
+    <!-- ================== MODAL: FECHAMENTO DE CAIXA DIÁRIO ================== -->
+<div id="modal-fechamento-diario" class="modal-overlay">
+    <div class="modal-content modal-lg">
+        <header class="modal-header">
+            <h2><i class="fa-solid fa-cash-register"></i> Fechamento de Caixa Diário</h2>
+            <button class="btn-close-modal" id="btn-close-fechamento-diario" type="button" aria-label="Fechar">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </header>
+        <div class="modal-body">
+            <div class="flex-row gap-15 mb-20" style="align-items: center; justify-content: space-between; flex-wrap: wrap;">
+                <div class="flex-row gap-10" style="align-items: center;">
+                    <label for="fechamento-data" style="font-weight: 600;">Data do Fechamento:</label>
+                    <input type="date" id="fechamento-data" class="input-premium" style="max-width: 180px;">
+                </div>
+                <button type="button" class="btn-secondary" id="btn-imprimir-fechamento">
+                    <i class="fa-solid fa-print"></i> Imprimir Fechamento
+                </button>
+            </div>
+
+            <!-- 4 Cards de Resumo do Dia -->
+            <div id="fechamento-cards" class="dashboard-grid mb-20" style="grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px;"></div>
+
+            <!-- Bloco 1: Conferência por Forma de Pagamento -->
+            <div class="mb-20">
+                <h4 style="margin-bottom: 10px; color: var(--primary-color);"><i class="fa-solid fa-wallet"></i> Entradas por Forma de Pagamento</h4>
+                <div id="fechamento-pagamentos" class="flex-row gap-10" style="flex-wrap: wrap;"></div>
+            </div>
+
+            <!-- Bloco 2: Produção e Repasse por Profissional -->
+            <div class="mb-20">
+                <h4 style="margin-bottom: 10px; color: var(--primary-color);"><i class="fa-solid fa-user-doctor"></i> Produção por Profissional (Clínica × Repasse)</h4>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Profissional</th>
+                                <th>Atend.</th>
+                                <th>Procedimentos Realizados</th>
+                                <th>Bruto</th>
+                                <th>Repasse Prof.</th>
+                                <th>Parte Clínica</th>
+                            </tr>
+                        </thead>
+                        <tbody id="fechamento-profissionais-body"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Bloco 3: Saídas / Despesas do Dia -->
+            <div>
+                <h4 style="margin-bottom: 10px; color: #dc3545;"><i class="fa-solid fa-arrow-trend-down"></i> Saídas / Despesas do Dia</h4>
+                <div id="fechamento-saidas-lista"></div>
+            </div>
+        </div>
+    </div>
+</div>
 
     <div id="toast-container" class="toast-container"></div>
     <script src="https://unpkg.com/imask"></script>

@@ -3,6 +3,14 @@ import { clinicaState } from './state.js';
 // ========================================================
 // VISIBILIDADE POR PROFISSIONAL (LGPD / agenda compartilhada)
 //
+// Como o sistema sabe que o Ricardo vê o Haroldo
+
+// No cadastro do Ricardo no Firebase (/usuarios/{id}), você coloca um campo:
+
+// profissionaisPermitidos: ["id-do-Haroldo"]
+
+// Pronto. O login.js lê esse campo e o visibilidade.js usa.
+
 // Regras:
 //  - admin: vê tudo.
 //  - recepcao sem profissionaisPermitidos: vê tudo.

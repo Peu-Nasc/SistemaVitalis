@@ -9,6 +9,7 @@ import { registrarAuditoria } from './auditoria.js';
 import { resetarSeletorModelo } from './modelosDocumentos.js';
 import { obterHTMLDocumento, tituloDoDocumento } from './editorDocumento.js';
 import { aoAbrirProntuarioAtendimento, aoFecharProntuarioAtendimento, lerCronometro, camposParaLiberarTrava, aoSalvarAtendimento, pacienteEmAtendimentoAgora, descreverTrava, formatarDuracaoCurta } from './atendimento.js';
+import { pacientesVisiveis } from './visibilidade.js';
 import { initProntuarioExtras, aoAbrirProntuario, aoFecharProntuario, aoSalvarEvolucao, montarTextoEvolucao, lerSinaisVitais, validarSinaisVitais, calcularIdade } from './prontuario.js';
 
 let pacienteAtivoId = null;
@@ -1128,6 +1129,13 @@ export function abrirProntuario(idPaciente, opcoes = {}) {
     }
 
     const paciente = clinicaState.pacientes.find(p => String(p.id) === String(idPaciente));
+
+    // Trava real no acesso (não só na lista): impede abrir prontuário de paciente
+    // fora da agenda do profissional, mesmo forçando o id via DevTools.
+    if (paciente && !pacientesVisiveis().some(p => String(p.id) === String(paciente.id))) {
+        showToast('Você não tem acesso ao prontuário deste paciente.', 'error');
+        return;
+    }
     
     if (paciente) {
         document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
@@ -1367,6 +1375,11 @@ function obterStatusAtividade(pacienteId) {
 }
 
 export function atualizarTabelaPacientes(lista = clinicaState.pacientes) {
+    // Trava de privacidade: Doutor(a) (e assistentes com agenda vinculada) só
+    // enxergam pacientes das agendas a que têm direito - vale também para a busca.
+    const idsVisiveis = new Set(pacientesVisiveis().map(p => String(p.id)));
+    lista = lista.filter(p => idsVisiveis.has(String(p.id)));
+
     const patientListBody = document.getElementById('patient-table-body-list');
     if (patientListBody) {
         patientListBody.innerHTML = lista.map(p => {

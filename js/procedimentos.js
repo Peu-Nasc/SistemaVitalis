@@ -48,6 +48,16 @@ function injetarCamposExtrasNoModalProcedimento() {
         grupoValorEsp.insertAdjacentElement('afterend', grupoCartao);
         aplicarMascaraMoeda(grupoCartao.querySelector('#proc-valor-cartao'));
 
+        // Valor pago pelo convênio (repasse em outra data - não entra no Caixa do Dia)
+        const grupoConvenio = document.createElement('div');
+        grupoConvenio.className = 'form-group';
+        grupoConvenio.innerHTML = `
+            <label>Valor Convênio (R$)</label>
+            <input type="text" id="proc-valor-convenio" class="input-premium" placeholder="0,00 (vazio = não atende convênio)">
+        `;
+        grupoCartao.insertAdjacentElement('afterend', grupoConvenio);
+        aplicarMascaraMoeda(grupoConvenio.querySelector('#proc-valor-convenio'));
+
         // Seletor de Tipo (Consulta, Exame, Procedimento, Avaliação) + Profissional Padrão
         const grupoVinculo = document.createElement('div');
         grupoVinculo.className = 'form-group full-width form-grid';
@@ -69,7 +79,7 @@ function injetarCamposExtrasNoModalProcedimento() {
                 </select>
             </div>
         `;
-        grupoCartao.insertAdjacentElement('afterend', grupoVinculo);
+        grupoConvenio.insertAdjacentElement('afterend', grupoVinculo);
     }
 
     // 3. Adiciona campo opcional de Custo de Insumo (ex: -R$ 500 Botox antes dos 30%)
@@ -164,6 +174,9 @@ export function initProcedimentos() {
                 const valorCartaoTexto = (document.getElementById('proc-valor-cartao')?.value || '').replace(/\./g, '').replace(',', '.');
                 const valorCartaoPix = parseFloat(valorCartaoTexto) || valorEsp;
 
+                const valorConvenioTexto = (document.getElementById('proc-valor-convenio')?.value || '').replace(/\./g, '').replace(',', '.');
+                const valorConvenio = parseFloat(valorConvenioTexto) || null;
+
                 const custoInsumoTexto = (document.getElementById('proc-custo-insumo')?.value || '').replace(/\./g, '').replace(',', '.');
                 const custoFixoInsumo = parseFloat(custoInsumoTexto) || 0;
 
@@ -187,6 +200,7 @@ export function initProcedimentos() {
                     valorBase: valorEsp,
                     valorEspecie: valorEsp,
                     valorCartaoPix,
+                    valorConvenio,
                     custoFixoInsumo,
                     profissionalPadraoId: profPadraoId || null,
                     profissionalPadraoNome: profPadraoObj ? profPadraoObj.nome : null,
@@ -358,6 +372,10 @@ function abrirFormularioParaEdicao(item) {
     if (document.getElementById('proc-valor-cartao')) {
         document.getElementById('proc-valor-cartao').value = valorPix.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
     }
+    if (document.getElementById('proc-valor-convenio')) {
+        const valorConv = Number(item.valorConvenio) || 0;
+        document.getElementById('proc-valor-convenio').value = valorConv > 0 ? valorConv.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '';
+    }
     if (document.getElementById('proc-custo-insumo')) {
         document.getElementById('proc-custo-insumo').value = custoInsumo > 0 ? custoInsumo.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '';
     }
@@ -414,6 +432,7 @@ export function atualizarTabelaProcedimentos(filtro = '') {
             <td>
                 <span class="positivo valor-lancamento" title="Pagamento em Espécie">${formatCurrency(vEspecie)} <small>(Espécie)</small></span><br>
                 <small style="color:var(--primary-color); font-weight:600;">💳 Cartão/Pix: ${formatCurrency(vCartao)}</small>
+                ${Number(p.valorConvenio) > 0 ? `<br><small style="color:#6C757D; font-weight:600;">🏥 Convênio: ${formatCurrency(p.valorConvenio)}</small>` : ''}
             </td>
             <td>${textoSplit}</td>
             <td>${profVinculado}</td>
@@ -445,7 +464,8 @@ export function atualizarTabelaProcedimentos(filtro = '') {
     }
 }
 
-// Retorna o valor certo conforme o profissional e a forma de pagamento ('Dinheiro' vs 'Pix'/'Credito'/'Debito')
+// Retorna o valor certo conforme o profissional e a forma de pagamento
+// ('Dinheiro' | 'Pix'/'Credito'/'Debito' | 'Convenio')
 export function valorDoProcedimentoParaProfissional(procedimentoId, profissionalId, formaPagamento = 'Dinheiro') {
     const proc = clinicaState.procedimentos.find(p => String(p.id) === String(procedimentoId));
     if (!proc) {
@@ -454,6 +474,12 @@ export function valorDoProcedimentoParaProfissional(procedimentoId, profissional
         if (!pac) return 0;
         const ehEspeciePac = formaPagamento === 'Dinheiro';
         return Number(ehEspeciePac ? (pac.valorEspecie ?? pac.valorFechado) : (pac.valorCartaoPix ?? pac.valorFechado)) || 0;
+    }
+
+    // Convênio usa a tabela do convênio, sem exceção por profissional (as exceções
+    // são preços particulares). Sem valor de convênio cadastrado, cai no valor base.
+    if (formaPagamento === 'Convenio' && Number(proc.valorConvenio) > 0) {
+        return Number(proc.valorConvenio);
     }
 
     const excecao = (proc.excecoes || []).find(x => String(x.profissionalId) === String(profissionalId));

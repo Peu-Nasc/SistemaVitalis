@@ -177,6 +177,10 @@ export function initAuth() {
                 clinicaState.sessao.nome = dadosUsuario.nome;
                 clinicaState.sessao.perfil = dadosUsuario.perfil;
                 clinicaState.sessao.clinicaId = dadosUsuario.clinicaId;
+                clinicaState.sessao.profissionalId = dadosUsuario.profissionalId || null;
+                clinicaState.sessao.profissionaisPermitidos = Array.isArray(dadosUsuario.profissionaisPermitidos)
+                    ? dadosUsuario.profissionaisPermitidos.map(String)
+                    : [];
 
                 // Esconde as telas que não pode ver
                 aplicarPermissoesDeTela(); 
@@ -287,6 +291,10 @@ export function initAuth() {
                 clinicaState.sessao.nome = dadosUsuario.nome;
                 clinicaState.sessao.perfil = dadosUsuario.perfil;
                 clinicaState.sessao.clinicaId = dadosUsuario.clinicaId;
+                clinicaState.sessao.profissionalId = dadosUsuario.profissionalId || null;
+                clinicaState.sessao.profissionaisPermitidos = Array.isArray(dadosUsuario.profissionaisPermitidos)
+                    ? dadosUsuario.profissionaisPermitidos.map(String)
+                    : [];
 
                 // 4. Aplica as travas visuais (Oculta os menus)
                 aplicarPermissoesDeTela();

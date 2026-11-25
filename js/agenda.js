@@ -615,11 +615,24 @@ function renderizarBarraResumoRecepcao(dataSelecionada) {
     `).join('');
 }
 
-function profissionaisPermitidosNaAgenda() {
+// Quem o usuário logado pode ver na agenda.
+//  - admin / recepção: todos os profissionais
+//  - Doutor(a): a própria agenda + as agendas vinculadas ao seu usuário
+//    (campo `profissionaisPermitidos` em /usuarios/{uid}, lista de ids de profissionais;
+//    usado pelo assistente de triagem para enxergar a agenda do médico sem duplicar agendamentos)
+function profissionaisDoUsuario() {
     if (clinicaState.sessao.perfil !== 'Doutor(a)') return clinicaState.profissionais;
-    return clinicaState.profissionais.filter(p =>
-        p.nome.trim().toLowerCase() === clinicaState.sessao.nome.trim().toLowerCase()
+    const nomeSessao = String(clinicaState.sessao.nome || '').trim().toLowerCase();
+    const vinculados = new Set(
+        (Array.isArray(clinicaState.sessao.profissionaisPermitidos) ? clinicaState.sessao.profissionaisPermitidos : []).map(String)
     );
+    return clinicaState.profissionais.filter(p =>
+        String(p.nome || '').trim().toLowerCase() === nomeSessao || vinculados.has(String(p.id))
+    );
+}
+
+function profissionaisPermitidosNaAgenda() {
+    return profissionaisDoUsuario();
 }
 
 function obterConfiguracaoEscala(profissional) {
@@ -1644,7 +1657,7 @@ export function abrirModalAgendamento(hora = '', profId = '', data = '') {
     
     let profsPermitidos = clinicaState.profissionais;
     if (clinicaState.sessao.perfil === 'Doutor(a)') {
-        profsPermitidos = clinicaState.profissionais.filter(p => p.nome.trim().toLowerCase() === clinicaState.sessao.nome.trim().toLowerCase());
+        profsPermitidos = profissionaisDoUsuario();
     }
 
     selPac.innerHTML = clinicaState.pacientes.map(p => `<option value="${p.id}">${escapeHTML(p.nome)}</option>`).join('');
@@ -1700,7 +1713,7 @@ export function abrirModalBloqueio() {
 
     let profsPermitidos = clinicaState.profissionais;
     if (clinicaState.sessao.perfil === 'Doutor(a)') {
-        profsPermitidos = clinicaState.profissionais.filter(p => p.nome.trim().toLowerCase() === clinicaState.sessao.nome.trim().toLowerCase());
+        profsPermitidos = profissionaisDoUsuario();
     }
 
     selProf.innerHTML = profsPermitidos.map(p => `<option value="${p.id}">${escapeHTML(p.nome)} (${escapeHTML(p.especialidade)})</option>`).join('');
@@ -1727,8 +1740,8 @@ export function atualizarAgenda() {
     let mostrarTodos = true;
 
     if (clinicaState.sessao.perfil === 'Doutor(a)') {
-        profsPermitidos = clinicaState.profissionais.filter(p => p.nome.trim().toLowerCase() === clinicaState.sessao.nome.trim().toLowerCase());
-        mostrarTodos = false;
+        profsPermitidos = profissionaisDoUsuario();
+        mostrarTodos = profsPermitidos.length > 1;
         if (selectVisao) selectVisao.style.display = 'none';
     }
 
@@ -1918,7 +1931,7 @@ function atualizarRotuloPeriodo(dataSelecionadaIso) {
 function agendamentosPermitidos(filtroProfId) {
     let profsPermitidos = clinicaState.profissionais;
     if (clinicaState.sessao.perfil === 'Doutor(a)') {
-        profsPermitidos = clinicaState.profissionais.filter(p => p.nome.trim().toLowerCase() === clinicaState.sessao.nome.trim().toLowerCase());
+        profsPermitidos = profissionaisDoUsuario();
     }
     const idsPermitidos = new Set(profsPermitidos.map(p => String(p.id)));
 

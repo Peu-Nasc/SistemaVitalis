@@ -4,6 +4,7 @@ import { db } from './firebase.js';
 import { collection, query, where, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js';
 import { abrirProntuario } from './pacientes.js';
 import { splitDoProcedimento, valorDoProcedimentoParaProfissional } from './procedimentos.js';
+import { idsAgendasVisiveis } from './visibilidade.js';
 
 const ROTULO_STATUS = {
     agendado: { texto: 'Agendado', classe: 'neutral' },
@@ -35,16 +36,26 @@ function obterProfissionalLogado() {
     );
     if (porEmail) return porEmail;
 
-    return clinicaState.profissionais.find(p =>
+    const porNome = clinicaState.profissionais.find(p =>
         (p.nome || '').trim().toLowerCase() === nomeSessao
-    ) || null;
+    );
+    if (porNome) return porNome;
+
+    // Fallback para assistentes (ex: Ricardo -> Dr. Aroldo)
+    const permitidos = clinicaState.sessao.profissionaisPermitidos || [];
+    if (permitidos.length > 0) {
+        return clinicaState.profissionais.find(p => permitidos.includes(String(p.id))) || null;
+    }
+
+    return null;
 }
 
 function meusAgendamentosDeHoje() {
-    const prof = obterProfissionalLogado();
-    if (!prof) return null;
+    const ids = idsAgendasVisiveis();
+    if (!ids || ids.size === 0) return null;
+
     return agendamentosHoje
-        .filter(a => String(a.profId) === String(prof.id) && a.status !== 'cancelado')
+        .filter(a => ids.has(String(a.profId)) && a.status !== 'cancelado')
         .sort((a, b) => (a.hora || '').localeCompare(b.hora || ''));
 }
 
@@ -189,8 +200,8 @@ export function renderizarPainelMedico() {
     const pendentesDia = meus.filter(a => a.status !== 'concluido');
 
     // Cálculo de Repasse em Tempo Real (Pedido Dr. Aroldo)
-    const valorFaturadoHoje = concluidos.reduce((soma, a) => soma + calcularRepasseDaConsulta(a, prof.id), 0);
-    const valorPrevistoRestante = pendentesDia.reduce((soma, a) => soma + calcularRepasseDaConsulta(a, prof.id), 0);
+    const valorFaturadoHoje = concluidos.reduce((soma, a) => soma + calcularRepasseDaConsulta(a, a.profId), 0);
+    const valorPrevistoRestante = pendentesDia.reduce((soma, a) => soma + calcularRepasseDaConsulta(a, a.profId), 0);
 
     const txtFaturado = ocultarValoresRepasse ? 'R$ ••••' : formatCurrency(valorFaturadoHoje);
     const txtPrevisto = ocultarValoresRepasse ? 'R$ ••••' : formatCurrency(valorPrevistoRestante);

@@ -41,6 +41,10 @@ function evolucaoEditavelHoje(evo) {
     return String(evo.data || '').startsWith(prefixoHoje);
 }
 
+function usuarioEhTriagem() {
+    return Boolean(clinicaState.sessao.ehTriagem);
+}
+
 function sairModoEdicaoEvolucao() {
     const editIdx = document.getElementById('pep-evo-edit-index');
     if (editIdx) editIdx.value = '';
@@ -49,7 +53,11 @@ function sairModoEdicaoEvolucao() {
     const btnCancel = document.getElementById('btn-cancelar-edicao-evo');
     if (btnCancel) btnCancel.style.display = 'none';
     const btnSubmit = document.getElementById('btn-submit-evolucao');
-    if (btnSubmit) btnSubmit.innerHTML = '<i class="fa-solid fa-signature"></i> Assinar e Salvar no Histórico';
+    if (btnSubmit) {
+        btnSubmit.innerHTML = usuarioEhTriagem()
+            ? '<i class="fa-solid fa-clipboard-check"></i> Salvar Triagem'
+            : '<i class="fa-solid fa-signature"></i> Assinar e Finalizar Atendimento';
+    }
 }
 
 function montarBlocoOftalmologia() {
@@ -532,8 +540,11 @@ export function initPacientes() {
         const paciente = clinicaState.pacientes.find(p => String(p.id) === String(pacienteAtivoId));
         const btnSalvar = e.target.querySelector('button[type="submit"]');
 
-        const cidValor = (document.getElementById('pep-cid')?.value || '').trim().toUpperCase();
-        if (!cidValor || cidValor.length < 3) {
+        const modoTriagem = usuarioEhTriagem();
+        const cidBruto = (document.getElementById('pep-cid')?.value || '').trim().toUpperCase();
+        const cidValor = modoTriagem ? (cidBruto || 'TRIAGEM') : cidBruto;
+
+        if (!modoTriagem && (!cidValor || cidValor.length < 3)) {
             showToast('Informe o CID-10 ou clique num dos botões de Suspeita / Rotina para finalizar.', 'warning');
             document.getElementById('pep-cid')?.focus();
             return;
@@ -553,7 +564,7 @@ export function initPacientes() {
                 return;
             }
             const sinaisVitais = lerSinaisVitais();
-            const concluirConsulta = Boolean(document.getElementById('pep-concluir-consulta')?.checked);
+            const concluirConsulta = modoTriagem ? false : Boolean(document.getElementById('pep-concluir-consulta')?.checked);
 
             let textoProntuario = montarTextoEvolucao();
             const blocoOftalmo = montarBlocoOftalmologia();
@@ -613,10 +624,13 @@ export function initPacientes() {
             const novaEvolucao = {
                 data: new Date().toLocaleString('pt-BR'),
                 dataISO: new Date().toISOString(),
+                tipo: modoTriagem ? 'triagem' : 'consulta',
                 cid: cidValor,
                 texto: textoCriptografado,
                 profissionalId: String(profissional.id),
-                assinatura: `Assinado digitalmente por ${profissional.nome} | ${profissional.conselho}: ${profissional.registro}`
+                assinatura: modoTriagem
+                    ? `Triagem registrada por ${profissional.nome}`
+                    : `Assinado digitalmente por ${profissional.nome} | ${profissional.conselho}: ${profissional.registro}`
             };
             if (sinaisVitais) novaEvolucao.vitaisCripto = encriptar(JSON.stringify(sinaisVitais));
 
@@ -1145,6 +1159,23 @@ export function abrirProntuario(idPaciente, opcoes = {}) {
         
         pacienteAtivoId = paciente.id;
         sairModoEdicaoEvolucao();
+
+        const modoTriagem = usuarioEhTriagem();
+        const chkConcluir = document.getElementById('pep-concluir-consulta');
+        const blocoConcluir = chkConcluir?.closest('.pep-concluir');
+        const inputCid = document.getElementById('pep-cid');
+        const inputDiag = document.getElementById('pep-diagnostico');
+        const btnSubmitEvo = document.getElementById('btn-submit-evolucao');
+
+        if (chkConcluir) chkConcluir.checked = !modoTriagem;
+        if (blocoConcluir) blocoConcluir.style.display = modoTriagem ? 'none' : '';
+        if (inputCid) inputCid.required = !modoTriagem;
+        if (inputDiag) inputDiag.required = !modoTriagem;
+        if (btnSubmitEvo) {
+            btnSubmitEvo.innerHTML = modoTriagem
+                ? '<i class="fa-solid fa-clipboard-check"></i> Salvar Triagem'
+                : '<i class="fa-solid fa-signature"></i> Assinar e Finalizar Atendimento';
+        }
         
         const selProf = document.getElementById('pep-profissional');
         if (selProf) {
@@ -1220,10 +1251,29 @@ function renderizarResumoRapidoProntuario(paciente) {
     if (!el) return;
 
     const evolucoes = paciente.evolucoes || [];
+    const triagemHoje = [...evolucoes].reverse().find(e => e.tipo === 'triagem' && evolucaoEditavelHoje(e));
+    let htmlTriagemHoje = '';
+
+    if (triagemHoje) {
+        const textoTriagem = escapeHTML(decriptar(triagemHoje.texto))
+            .replace(/\n/g, '<br>')
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+        htmlTriagemHoje = `
+            <div style="background:#f0f9ff; border:1px solid #bae6fd; border-left:4px solid #0284c7; border-radius:8px; padding:12px 14px; margin-bottom:14px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; gap:8px; flex-wrap:wrap;">
+                    <strong style="color:#0369a1;"><i class="fa-solid fa-clipboard-check"></i> Triagem realizada hoje (${escapeHTML(triagemHoje.data)})</strong>
+                    <small style="color:#0369a1;">${escapeHTML(triagemHoje.assinatura || '')}</small>
+                </div>
+                <div style="font-size:0.88rem; line-height:1.45; color:var(--text-main);">${textoTriagem}</div>
+            </div>
+        `;
+    }
+
     const ultima = evolucoes[evolucoes.length - 1];
 
     if (!ultima) {
-        el.innerHTML = `<div class="resumo-rapido-titulo"><i class="fa-solid fa-circle-info"></i> Primeira consulta</div>
+        el.innerHTML = `${htmlTriagemHoje}<div class="resumo-rapido-titulo"><i class="fa-solid fa-circle-info"></i> Primeira consulta</div>
             <p class="resumo-rapido-vazio">Este paciente ainda não tem evoluções registradas.</p>`;
         return;
     }
@@ -1233,6 +1283,7 @@ function renderizarResumoRapidoProntuario(paciente) {
     const conduta = extrairCampoEvolucao(texto, ['Conduta']);
 
     el.innerHTML = `
+        ${htmlTriagemHoje}
         <div class="resumo-rapido-titulo"><i class="fa-solid fa-clock-rotate-left"></i> Resumo da última consulta</div>
         <div class="resumo-rapido-grid">
             <div><span class="rotulo">Data</span><strong>${escapeHTML(ultima.data || '-')}</strong></div>

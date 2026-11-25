@@ -5,10 +5,11 @@ export const clinicaState = {
         uid: null,
         email: null,
         nome: null,
-        perfil: null,      // 'admin', 'Doutor(a)' ou 'recepcao'
-        clinicaId: null,   // Identificador único da clínica pagante
-        profissionalId: null,          // id do cadastro em "profissionais" (se o usuário atende)
-        profissionaisPermitidos: []    // agendas compartilhadas (ex.: assistente de triagem)
+        perfil: null,
+        clinicaId: null,
+        profissionalId: null,
+        profissionaisPermitidos: [],
+        ehTriagem: false // true para assistentes que fazem pré-consulta/triagem (ex: Ricardo)
     },
 
 // Marcadores de funcionalidades ativas para a clínica logada

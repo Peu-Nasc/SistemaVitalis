@@ -121,6 +121,9 @@ function linhaAgenda(a) {
     const concluido = a.status === 'concluido';
     const tipo = a.procedimentoNome || a.tipo || 'Consulta';
     const sala = a.sala ? ` · Sala ${escapeHTML(String(a.sala))}` : '';
+    const seloTriagem = (a.triagemPronta && !concluido)
+        ? `<span class="badge-triagem-pronta"><i class="fa-solid fa-clipboard-check"></i> Triagem pronta</span>`
+        : '';
     const botao = a.pacId
         ? `<button type="button" class="btn-action btn-painel-abrir" data-pac-id="${escapeHTML(String(a.pacId))}" title="Abrir prontuário"><i class="fa-solid fa-notes-medical"></i></button>`
         : '';
@@ -132,6 +135,7 @@ function linhaAgenda(a) {
                 <strong>${escapeHTML(a.pacNome || 'Paciente')}</strong>
                 <small>${escapeHTML(tipo)}${sala}</small>
             </div>
+            ${seloTriagem}
             <span class="badge ${st.classe}">${st.texto}</span>
             ${botao}
         </div>`;
@@ -140,14 +144,23 @@ function linhaAgenda(a) {
 function itemFila(a, posicao) {
     const tipo = a.procedimentoNome || a.tipo || 'Consulta';
     const sala = a.sala ? ` · Sala ${escapeHTML(String(a.sala))}` : '';
+    const ehTriagem = Boolean(clinicaState.sessao.ehTriagem);
+    const seloTriagem = a.triagemPronta
+        ? `<span class="badge-triagem-pronta"><i class="fa-solid fa-clipboard-check"></i> Triagem pronta</span>`
+        : '';
+    const labelBotao = ehTriagem
+        ? (a.triagemPronta ? 'Ver Triagem' : 'Fazer Triagem')
+        : 'Atender';
+    const iconeBotao = ehTriagem ? 'fa-clipboard-list' : 'fa-stethoscope';
+
     return `
         <div class="fila-item">
             <div class="fila-posicao">${posicao}º</div>
             <div class="painel-linha-info">
-                <strong>${escapeHTML(a.pacNome || 'Paciente')}</strong>
+                <strong>${escapeHTML(a.pacNome || 'Paciente')} ${seloTriagem}</strong>
                 <small>Horário ${escapeHTML(a.hora || '--:--')} · ${escapeHTML(tipo)}${sala}</small>
             </div>
-            ${a.pacId ? `<button type="button" class="btn-primary btn-painel-abrir" data-aba="tab-evolucao" data-pac-id="${escapeHTML(String(a.pacId))}"><i class="fa-solid fa-stethoscope"></i> Atender</button>` : ''}
+            ${a.pacId ? `<button type="button" class="btn-primary btn-painel-abrir" data-aba="tab-evolucao" data-pac-id="${escapeHTML(String(a.pacId))}"><i class="fa-solid ${iconeBotao}"></i> ${labelBotao}</button>` : ''}
         </div>`;
 }
 

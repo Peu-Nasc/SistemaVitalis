@@ -9,7 +9,13 @@ export const clinicaState = {
         clinicaId: null,
         profissionalId: null,
         profissionaisPermitidos: [],
-        ehTriagem: false // true para assistentes que fazem pré-consulta/triagem (ex: Ricardo)
+        ehTriagem: false, // true para assistentes que fazem pré-consulta/triagem (ex: Ricardo)
+        triagemConfig: {
+            modelo: 'geral',
+            verHistorico: true,
+            verAntecedentes: true,
+            verImagens: true
+        }
     },
 
 // Marcadores de funcionalidades ativas para a clínica logada

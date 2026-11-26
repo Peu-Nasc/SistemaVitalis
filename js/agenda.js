@@ -155,6 +155,27 @@ async function alterarStatusConsultaRapido(idAgendamento, novoStatus) {
     }
 }
 
+async function enviarTriagemParaMedico(idAgendamento) {
+    const agendamento = clinicaState.agenda.agendamentos.find(a => String(a.id) === String(idAgendamento));
+    if (!agendamento) return;
+
+    try {
+        const novos = {
+            status: 'aguardando_atendimento',
+            triagemPronta: true,
+            triagemEm: new Date().toISOString(),
+            triagemPor: clinicaState.sessao.nome || 'Triagem'
+        };
+        await updateDoc(doc(db, "agendamentos", idAgendamento), novos);
+        Object.assign(agendamento, novos);
+        showToast(`Triagem de ${agendamento.pacNome} finalizada e enviada para o médico!`, 'success');
+        atualizarAgenda();
+    } catch (error) {
+        console.error('Erro ao enviar triagem:', error);
+        showToast('Não foi possível atualizar o status da triagem.', 'error');
+    }
+}
+
 export async function abrirModalPagamento(idAgendamento, notificacaoId = null) {
     const modal = document.getElementById('modal-confirmar-agendamento');
     const form = document.getElementById('form-confirmar-agendamento');
@@ -308,10 +329,19 @@ function atualizarVisualizacaoProcedimento() {
 
     if (!selectProcedimento || !campoValor || !grupoProcedimento) return;
 
+    const isRevisao = tipoAtendimento === 'revisao';
     const isAvulso = tipoAtendimento === 'procedimento_avulso';
     const isPacote = tipoAtendimento === 'pacote';
+
     grupoProcedimento.style.display = (isAvulso || isPacote) ? 'block' : 'none';
     selectProcedimento.disabled = !(isAvulso || isPacote);
+
+    if (isRevisao) {
+        itensProcedimentoAgenda = [];
+        renderizarItensProcedimentoAgenda();
+        campoValor.value = 'R$ 0,00 (Revisão sem custo)';
+        return;
+    }
 
     if (!selectProcedimento.value) {
         if (isAvulso && clinicaState.procedimentos.length > 0) {
@@ -1191,28 +1221,35 @@ export function initAgenda() {
             const tipoAtendimento = document.getElementById('agenda-tipo').value;
             const selectProcedimento = document.getElementById('agenda-procedimento');
             const isPacote = tipoAtendimento === 'pacote';
+            const isRevisao = tipoAtendimento === 'revisao';
 
             let itensFinais = [...itensProcedimentoAgenda];
-            if (itensFinais.length === 0) {
-                const itemSelecionadoId = selectProcedimento ? selectProcedimento.value : '';
-                const itemObj = isPacote
-                    ? clinicaState.pacotes.find(p => String(p.id) === String(itemSelecionadoId))
-                    : clinicaState.procedimentos.find(p => String(p.id) === String(itemSelecionadoId));
+            let procedimentoId = null;
+            let procedimentoNome = 'Revisão (sem custo)';
+            let valorAtendimento = 0;
 
-                if (!itemSelecionadoId || !itemObj) {
-                    showToast(isPacote ? 'Selecione um pacote válido.' : 'Selecione um procedimento válido.', 'error');
-                    return;
+            if (!isRevisao) {
+                if (itensFinais.length === 0) {
+                    const itemSelecionadoId = selectProcedimento ? selectProcedimento.value : '';
+                    const itemObj = isPacote
+                        ? clinicaState.pacotes.find(p => String(p.id) === String(itemSelecionadoId))
+                        : clinicaState.procedimentos.find(p => String(p.id) === String(itemSelecionadoId));
+
+                    if (!itemSelecionadoId || !itemObj) {
+                        showToast(isPacote ? 'Selecione um pacote válido.' : 'Selecione um procedimento válido.', 'error');
+                        return;
+                    }
+                    itensFinais.push({
+                        id: String(itemObj.id),
+                        nome: itemObj.nome,
+                        valor: obterValorProcedimentoSelecionado()
+                    });
                 }
-                itensFinais.push({
-                    id: String(itemObj.id),
-                    nome: itemObj.nome,
-                    valor: obterValorProcedimentoSelecionado()
-                });
-            }
 
-            const procedimentoId = itensFinais[0].id;
-            const procedimentoNome = itensFinais.map(i => i.nome).join(' + ');
-            const valorAtendimento = itensFinais.reduce((soma, i) => soma + Number(i.valor || 0), 0);
+                procedimentoId = itensFinais[0].id;
+                procedimentoNome = itensFinais.map(i => i.nome).join(' + ');
+                valorAtendimento = itensFinais.reduce((soma, i) => soma + Number(i.valor || 0), 0);
+            }
             const paciente = clinicaState.pacientes.find(p => String(p.id) === String(pacId));
 
             if (tipoAtendimento === 'procedimento_avulso' && !procedimentoId) {
@@ -1309,7 +1346,7 @@ export function initAgenda() {
                     sala: String(sala),
                     data: dataAgendamento,
                     hora: horaAgendamento,
-                    tipo: tipoAtendimento === 'procedimento_avulso' ? 'Procedimento avulso' : 'Sessão de Pacote',
+                    tipo: isRevisao ? 'Revisão (sem custo)' : (tipoAtendimento === 'procedimento_avulso' ? 'Procedimento avulso' : 'Sessão de Pacote'),
                     procedimentoId: procedimentoId,
                     procedimentoNome: procedimentoNome,
                     itens: itensFinais,
@@ -2079,8 +2116,18 @@ function renderizarSlotOcupado(slot, agendamento) {
     const meta = META_STATUS[statusAtual] || META_STATUS.agendado;
 
     // Botão de avanço de etapa com 1 clique
+    const ehTriagem = Boolean(clinicaState.sessao.ehTriagem);
+    const triagemPronta = Boolean(agendamento.triagemPronta);
     let botaoProximaEtapa = '';
-    if (statusAtual === 'agendado') {
+    if (ehTriagem) {
+        if (statusAtual === 'concluido') {
+            botaoProximaEtapa = `<span class="appt-paid-tag"><i class="fa-solid fa-circle-check"></i> Finalizado</span>`;
+        } else if (triagemPronta) {
+            botaoProximaEtapa = `<span class="badge-triagem-pronta"><i class="fa-solid fa-clipboard-check"></i> Enviado p/ Médico</span>`;
+        } else {
+            botaoProximaEtapa = `<button type="button" class="btn-quick-step step-chegou btn-enviar-triagem" title="Finalizar triagem e enviar para o médico"><i class="fa-solid fa-paper-plane"></i> Enviar p/ Médico</button>`;
+        }
+    } else if (statusAtual === 'agendado') {
         botaoProximaEtapa = `<button type="button" class="btn-quick-step step-confirmar" data-next="confirmado" title="Confirmar presença com 1 clique"><i class="fa-solid fa-check"></i> Confirmar</button>`;
     } else if (statusAtual === 'confirmado') {
         botaoProximaEtapa = `<button type="button" class="btn-quick-step step-chegou" data-next="aguardando_atendimento" title="Paciente chegou na recepção (enviar p/ fila do médico)"><i class="fa-solid fa-person-walking-arrow-right"></i> Chegou (Fila)</button>`;
@@ -2101,6 +2148,7 @@ function renderizarSlotOcupado(slot, agendamento) {
     slot.innerHTML = `
         <div class="appt-card-top">
             <span class="appt-status-tag ${statusAtual}">${meta.rotulo}</span>
+            ${triagemPronta && statusAtual !== 'concluido' ? `<span class="badge-triagem-pronta"><i class="fa-solid fa-clipboard-check"></i> Triagem pronta</span>` : ''}
             ${agendamento.sala ? `<span class="appt-sala-tag">Sala ${escapeHTML(agendamento.sala)}</span>` : ''}
         </div>
         <p class="appt-card-nome" title="${escapeHTML(agendamento.pacNome)}">${escapeHTML(agendamento.pacNome)}</p>
@@ -2116,7 +2164,11 @@ function renderizarSlotOcupado(slot, agendamento) {
     if (btnStep) {
         btnStep.addEventListener('click', (e) => {
             e.stopPropagation();
-            alterarStatusConsultaRapido(agendamento.id, btnStep.getAttribute('data-next'));
+            if (btnStep.classList.contains('btn-enviar-triagem')) {
+                enviarTriagemParaMedico(agendamento.id);
+            } else {
+                alterarStatusConsultaRapido(agendamento.id, btnStep.getAttribute('data-next'));
+            }
         });
     }
 

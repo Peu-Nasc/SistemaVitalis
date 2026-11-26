@@ -3329,3 +3329,87 @@ table tbody tr:hover { background-color: #f6f9fc; }
 }
 .prof-header .prof-fora-escala { display: block; margin-top: 4px; color: #b45309; font-weight: 600; }
 .aviso-escala { display: block; margin-top: 6px; color: #b45309; font-weight: 600; line-height: 1.35; }
+
+/* === MODO TRIAGEM (esconde sempre o que é exclusivo do médico) === */
+#prontuario-ativo.modo-triagem .tab-btn[data-tab="tab-receita"],
+#prontuario-ativo.modo-triagem .tab-btn[data-tab="tab-exames"],
+#prontuario-ativo.modo-triagem #tab-btn-exames,
+#prontuario-ativo.modo-triagem #pep-cronometro,
+#prontuario-ativo.modo-triagem #btn-abrir-memed,
+#prontuario-ativo.modo-triagem #btn-imprimir-pep,
+#prontuario-ativo.modo-triagem .pep-concluir {
+    display: none !important;
+}
+
+.triagem-preset-box {
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-left: 4px solid var(--primary-color);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin: 12px 0;
+}
+
+.triagem-preset-box h5 {
+    margin: 0 0 12px;
+    color: var(--primary-color);
+    font-size: 0.92rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.badge-triagem-pronta {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: #dcfce7;
+    color: #166534;
+    border: 1px solid #86efac;
+    border-radius: 999px;
+    padding: 2px 9px;
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.triagem-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.55);
+    backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    padding: 16px;
+}
+
+.triagem-modal-box {
+    background: #fff;
+    border-radius: 16px;
+    max-width: 440px;
+    width: 100%;
+    padding: 28px 24px;
+    text-align: center;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+}
+
+.triagem-modal-icon {
+    width: 64px;
+    height: 64px;
+    margin: 0 auto 14px;
+    border-radius: 50%;
+    background: #dcfce7;
+    color: #16a34a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+}
+
+.triagem-modal-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 20px;
+}

@@ -182,6 +182,13 @@ export function initAuth() {
                     ? dadosUsuario.profissionaisPermitidos.map(id => String(id).trim()).filter(Boolean)
                     : [];
                 clinicaState.sessao.ehTriagem = Boolean(dadosUsuario.ehTriagem);
+                const cfgTriagem = dadosUsuario.triagemConfig || {};
+                clinicaState.sessao.triagemConfig = {
+                    modelo: cfgTriagem.modelo || 'geral',
+                    verHistorico: cfgTriagem.verHistorico !== false,
+                    verAntecedentes: cfgTriagem.verAntecedentes !== false,
+                    verImagens: cfgTriagem.verImagens !== false
+                };
 
                 // Esconde as telas que não pode ver
                 aplicarPermissoesDeTela(); 
@@ -297,6 +304,13 @@ export function initAuth() {
                     ? dadosUsuario.profissionaisPermitidos.map(id => String(id).trim()).filter(Boolean)
                     : [];
                 clinicaState.sessao.ehTriagem = Boolean(dadosUsuario.ehTriagem);
+                const cfgTriagem = dadosUsuario.triagemConfig || {};
+                clinicaState.sessao.triagemConfig = {
+                    modelo: cfgTriagem.modelo || 'geral',
+                    verHistorico: cfgTriagem.verHistorico !== false,
+                    verAntecedentes: cfgTriagem.verAntecedentes !== false,
+                    verImagens: cfgTriagem.verImagens !== false
+                };
 
                 // 4. Aplica as travas visuais (Oculta os menus)
                 aplicarPermissoesDeTela();

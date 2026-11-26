@@ -45,6 +45,160 @@ function usuarioEhTriagem() {
     return Boolean(clinicaState.sessao.ehTriagem);
 }
 
+const PRESETS_TRIAGEM = {
+    geral: {
+        titulo: 'Triagem Geral / Pré-Consulta',
+        icone: 'fa-solid fa-heart-pulse',
+        campos: [
+            { id: 'motivo_breve', label: 'Motivo da Consulta', placeholder: 'Resumo rápido da queixa...', full: true },
+            { id: 'medicacoes_uso', label: 'Medicações em Uso', placeholder: 'Remédios contínuos ou tomados hoje', full: true }
+        ]
+    },
+    oftalmologia: {
+        titulo: 'Triagem Oftalmológica / Optometria',
+        icone: 'fa-solid fa-eye',
+        campos: [
+            { id: 'pio_od', label: 'Pressão Ocular (PIO) OD', placeholder: 'Ex: 14 mmHg / 2,5' },
+            { id: 'pio_oe', label: 'Pressão Ocular (PIO) OE', placeholder: 'Ex: 14 mmHg / 2,5' },
+            { id: 'grau_od', label: 'Grau / Refração OD', placeholder: 'Esf / Cil / Eixo' },
+            { id: 'grau_oe', label: 'Grau / Refração OE', placeholder: 'Esf / Cil / Eixo' },
+            { id: 'av_od', label: 'Acuidade Visual (AV) OD', placeholder: 'Ex: 20/20' },
+            { id: 'av_oe', label: 'Acuidade Visual (AV) OE', placeholder: 'Ex: 20/20' },
+            { id: 'fundo_olho', label: 'Fundo de Olho (FO) / Alterações', placeholder: 'Observações do fundo de olho...', full: true }
+        ]
+    }
+};
+
+function obterConfigTriagem() {
+    return clinicaState.sessao.triagemConfig || {
+        modelo: 'geral',
+        verHistorico: true,
+        verAntecedentes: true,
+        verImagens: true
+    };
+}
+
+function renderizarCamposPresetTriagem() {
+    const formEvo = document.getElementById('form-evolucao');
+    if (!formEvo) return;
+
+    document.getElementById('pep-triagem-preset-box')?.remove();
+    if (!usuarioEhTriagem()) return;
+
+    const cfg = obterConfigTriagem();
+    const preset = PRESETS_TRIAGEM[cfg.modelo] || PRESETS_TRIAGEM.geral;
+
+    const box = document.createElement('div');
+    box.id = 'pep-triagem-preset-box';
+    box.className = 'triagem-preset-box full-width';
+    box.innerHTML = `
+        <h5><i class="${preset.icone}"></i> ${escapeHTML(preset.titulo)}</h5>
+        <div class="form-grid">
+            ${preset.campos.map(c => `
+                <div class="form-group${c.full ? ' full-width' : ''}">
+                    <label>${escapeHTML(c.label)}</label>
+                    <input type="text" class="input-premium triagem-preset-input" data-label="${escapeHTML(c.label)}" data-campo="${c.id}" placeholder="${escapeHTML(c.placeholder || '')}">
+                </div>
+            `).join('')}
+        </div>
+    `;
+
+    const grpPresc = document.getElementById('pep-prescricao')?.closest('.form-group');
+    if (grpPresc) {
+        grpPresc.insertAdjacentElement('beforebegin', box);
+    } else {
+        formEvo.prepend(box);
+    }
+}
+
+function montarBlocoPresetTriagem() {
+    const inputs = document.querySelectorAll('#pep-triagem-preset-box .triagem-preset-input');
+    const linhas = [];
+    inputs.forEach(inp => {
+        const val = inp.value.trim();
+        if (val) linhas.push(`**${inp.dataset.label}:** ${val}`);
+    });
+    return linhas.join('\n');
+}
+
+async function marcarTriagemProntaNaAgenda(paciente) {
+    try {
+        const snap = await getDocs(query(
+            collection(db, "agendamentos"),
+            where("clinicaId", "==", clinicaState.sessao.clinicaId),
+            where("data", "==", dataLocalISO())
+        ));
+
+        const elegiveis = ['agendado', 'confirmado', 'aguardando_atendimento'];
+        const agendamento = snap.docs
+            .map(d => ({ ...d.data(), id: String(d.id) }))
+            .find(a => String(a.pacId) === String(paciente.id) && elegiveis.includes(a.status || 'agendado'));
+
+        if (!agendamento) {
+            showToast('A triagem foi salva, mas não foi encontrado um agendamento elegível para enviar à fila do médico.', 'warning');
+            return false;
+        }
+
+        const novos = {
+            status: 'aguardando_atendimento',
+            triagemPronta: true,
+            triagemEm: new Date().toISOString(),
+            triagemPor: clinicaState.sessao.nome || 'Triagem'
+        };
+
+        await updateDoc(doc(db, "agendamentos", agendamento.id), novos);
+
+        const idx = clinicaState.agenda.agendamentos.findIndex(a => String(a.id) === agendamento.id);
+        if (idx >= 0) clinicaState.agenda.agendamentos[idx] = { ...clinicaState.agenda.agendamentos[idx], ...novos };
+
+        atualizarAgenda();
+        return true;
+    } catch (error) {
+        console.error('Erro ao marcar triagem pronta na agenda:', error);
+        showToast('A triagem foi salva, mas não foi possível atualizar a fila do médico.', 'warning');
+        return false;
+    }
+}
+
+function mostrarModalTriagemConcluida(paciente, enviadaParaFila) {
+    document.getElementById('modal-triagem-concluida')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'modal-triagem-concluida';
+    overlay.className = 'triagem-modal-overlay';
+    overlay.innerHTML = `
+        <div class="triagem-modal-box">
+            <div class="triagem-modal-icon"><i class="fa-solid fa-circle-check"></i></div>
+            <h3 style="margin:0 0 8px; color:var(--primary-color);">Triagem Concluída!</h3>
+            <p style="margin:0; color:var(--text-light); font-size:0.92rem; line-height:1.45;">
+                ${enviadaParaFila
+                    ? `A triagem de <strong>${escapeHTML(paciente.nome)}</strong> foi salva e o paciente já foi enviado para a fila do médico.`
+                    : `A triagem de <strong>${escapeHTML(paciente.nome)}</strong> foi salva, mas o envio para a fila não foi concluído. Avise a recepção ou atualize o agendamento na Agenda.`}
+            </p>
+            <div class="triagem-modal-actions">
+                <button type="button" class="btn-primary" id="btn-triagem-ver-prontuario" style="width:100%; justify-content:center;">
+                    <i class="fa-solid fa-folder-open"></i> Abrir Prontuário / Conferir Triagem
+                </button>
+                <button type="button" class="btn-secondary" id="btn-triagem-voltar-fila" style="width:100%; justify-content:center;">
+                    <i class="fa-solid fa-arrow-left"></i> Voltar para a Fila (Próximo Paciente)
+                </button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+
+    overlay.querySelector('#btn-triagem-ver-prontuario').addEventListener('click', () => {
+        overlay.remove();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+
+    overlay.querySelector('#btn-triagem-voltar-fila').addEventListener('click', () => {
+        overlay.remove();
+        document.getElementById('btn-fechar-pep')?.click();
+        document.querySelector('.menu-btn[data-target="painel-medico"]')?.click();
+    });
+}
+
 function sairModoEdicaoEvolucao() {
     const editIdx = document.getElementById('pep-evo-edit-index');
     if (editIdx) editIdx.value = '';
@@ -551,7 +705,7 @@ export function initPacientes() {
         }
 
         const prescricaoVal = (document.getElementById('pep-prescricao')?.value || '').trim();
-        if (!prescricaoVal) {
+        if (!modoTriagem && !prescricaoVal) {
             showToast('Preencha a evolução / conduta clínica antes de assinar.', 'warning');
             document.getElementById('pep-prescricao')?.focus();
             return;
@@ -570,6 +724,10 @@ export function initPacientes() {
             const blocoOftalmo = montarBlocoOftalmologia();
             if (blocoOftalmo) {
                 textoProntuario += `\n${blocoOftalmo}`;
+            }
+            const blocoPreset = montarBlocoPresetTriagem();
+            if (blocoPreset) {
+                textoProntuario += `\n${blocoPreset}`;
             }
 
             const textoCriptografado = encriptar(textoProntuario);
@@ -677,7 +835,10 @@ export function initPacientes() {
                 aoSalvarEvolucao(paciente);
                 aoSalvarAtendimento(paciente);
                 showToast('Evolução salva no Prontuário com sucesso!');
-                if (concluirConsulta) {
+                if (modoTriagem) {
+                    const enviadaParaFila = await marcarTriagemProntaNaAgenda(paciente);
+                    mostrarModalTriagemConcluida(paciente, enviadaParaFila);
+                } else if (concluirConsulta) {
                     const concluida = await concluirConsultaDeHoje(paciente, profissional);
                     if (concluida) showToast('Consulta marcada como concluída na agenda.', 'success');
                 }
@@ -1161,19 +1322,41 @@ export function abrirProntuario(idPaciente, opcoes = {}) {
         sairModoEdicaoEvolucao();
 
         const modoTriagem = usuarioEhTriagem();
+        const pepContainer = document.getElementById('prontuario-ativo');
+        if (pepContainer) pepContainer.classList.toggle('modo-triagem', modoTriagem);
+
         const chkConcluir = document.getElementById('pep-concluir-consulta');
-        const blocoConcluir = chkConcluir?.closest('.pep-concluir');
         const inputCid = document.getElementById('pep-cid');
         const inputDiag = document.getElementById('pep-diagnostico');
+        const inputRetorno = document.getElementById('pep-retorno-dias');
+        const inputPresc = document.getElementById('pep-prescricao');
         const btnSubmitEvo = document.getElementById('btn-submit-evolucao');
 
         if (chkConcluir) chkConcluir.checked = !modoTriagem;
-        if (blocoConcluir) blocoConcluir.style.display = modoTriagem ? 'none' : '';
-        if (inputCid) inputCid.required = !modoTriagem;
-        if (inputDiag) inputDiag.required = !modoTriagem;
+        if (inputCid) {
+            inputCid.required = !modoTriagem;
+            const grp = inputCid.closest('.form-group');
+            if (grp) grp.style.display = modoTriagem ? 'none' : '';
+        }
+        if (inputDiag) {
+            inputDiag.required = !modoTriagem;
+            const grp = inputDiag.closest('.form-group');
+            if (grp) grp.style.display = modoTriagem ? 'none' : '';
+        }
+        if (inputRetorno) {
+            const grp = inputRetorno.closest('.form-group');
+            if (grp) grp.style.display = modoTriagem ? 'none' : '';
+        }
+        if (inputPresc) {
+            inputPresc.placeholder = modoTriagem
+                ? 'Observações gerais da triagem (opcional se já preencheu sinais vitais ou oftalmologia)...'
+                : 'Descreva a conduta clínica e prescrição...';
+            const lbl = inputPresc.closest('.form-group')?.querySelector('label');
+            if (lbl) lbl.textContent = modoTriagem ? 'Observações da Triagem' : 'Conduta / Evolução Clínica *';
+        }
         if (btnSubmitEvo) {
             btnSubmitEvo.innerHTML = modoTriagem
-                ? '<i class="fa-solid fa-clipboard-check"></i> Salvar Triagem'
+                ? '<i class="fa-solid fa-paper-plane"></i> Finalizar Triagem e Enviar p/ Médico'
                 : '<i class="fa-solid fa-signature"></i> Assinar e Finalizar Atendimento';
         }
         
@@ -1206,6 +1389,29 @@ export function abrirProntuario(idPaciente, opcoes = {}) {
         renderizarResumoPacienteAtivo();
         aoAbrirProntuario(paciente, opcoes.aba);
         aoAbrirProntuarioAtendimento(paciente);
+        if (modoTriagem) {
+            document.querySelector('.tab-btn[data-tab="tab-evolucao"]')?.click();
+        }
+        const cfgTriagem = obterConfigTriagem();
+        const toggleAba = (tabName, mostrar) => {
+            const btn = document.querySelector(`.tab-btn[data-tab="${tabName}"]`);
+            if (btn) btn.style.display = mostrar ? '' : 'none';
+        };
+
+        if (modoTriagem) {
+            toggleAba('tab-resumo', cfgTriagem.verHistorico);
+            toggleAba('tab-historico', cfgTriagem.verHistorico);
+            toggleAba('tab-antecedentes', cfgTriagem.verAntecedentes);
+            toggleAba('tab-imagens', cfgTriagem.verImagens);
+            const blocoOftStatic = document.getElementById('pep-oft-av-od')?.closest('details');
+            if (blocoOftStatic) blocoOftStatic.style.display = 'none';
+        } else {
+            ['tab-resumo', 'tab-historico', 'tab-antecedentes', 'tab-imagens'].forEach(t => toggleAba(t, true));
+            const blocoOftStatic = document.getElementById('pep-oft-av-od')?.closest('details');
+            if (blocoOftStatic) blocoOftStatic.style.display = '';
+        }
+
+        renderizarCamposPresetTriagem();
 
         const grupoEspecialidade = document.getElementById('grupo-especialidade-encaminhamento');
         if (grupoEspecialidade) grupoEspecialidade.style.display = 'none';
